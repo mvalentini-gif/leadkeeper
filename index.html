@@ -1,0 +1,583 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0a6cc8">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="LeadKeeper">
+<title>LeadKeeper</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Barlow+Condensed:wght@700;800&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#fff;--card:#eef3fa;--ink:#0f2447;--mute:#6b7a94;--line:#dde4ef;--acc:#0a6cc8;--acc-ink:#fff;--warn:#d97706;--bad:#d92d20}
+@media (prefers-color-scheme:dark){:root{--bg:#0e1626;--card:#18233a;--ink:#eaf0fb;--mute:#93a3bf;--line:#27344f;--acc:#4a9af0;--acc-ink:#0b1220}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.4 "Barlow",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;-webkit-text-size-adjust:100%}
+#app{max-width:560px;margin:0 auto;padding:0 16px 150px}
+h1,h2,.cond{font-family:"Barlow Condensed","Barlow",sans-serif;font-weight:800;letter-spacing:.2px}
+h1{font-size:30px;margin:0;line-height:1.05}
+h2{font-size:13px;margin:22px 0 8px;color:var(--mute);text-transform:uppercase;letter-spacing:.8px;font-family:"Barlow",sans-serif;font-weight:700}
+header.top{display:flex;align-items:flex-end;justify-content:space-between;gap:8px;padding:calc(env(safe-area-inset-top) + 16px) 0 12px}
+.kicker{font-size:13px;color:var(--mute);font-weight:600}
+.sub{color:var(--mute);font-size:14px}
+.back{width:36px;height:36px;border-radius:50%;border:1px solid var(--line);display:inline-flex;align-items:center;justify-content:center;color:var(--ink);text-decoration:none;font-size:18px;margin-right:10px;flex:none}
+.card{background:var(--card);border-radius:14px;padding:12px 14px;margin:10px 0}
+.item{display:flex;gap:12px;align-items:center;padding:12px 0;border-bottom:1px solid var(--line);text-decoration:none;color:inherit}
+.item .ic{font-size:26px;width:32px;text-align:center;flex:none}
+.item .n{font-weight:700;font-size:17px}.item .m{color:var(--mute);font-size:14px}
+.date-pill{background:var(--card);border-radius:8px;padding:3px 9px;font-size:13px;font-weight:700;white-space:nowrap}
+.grow{flex:1;min-width:0}.row{display:flex;gap:8px;align-items:center}
+input,select,textarea,button{font:inherit;color:inherit}
+input,select,textarea{width:100%;padding:12px;border:1px solid var(--line);border-radius:12px;background:var(--bg)}
+textarea{min-height:76px;resize:vertical}
+label{display:block;font-size:14px;font-weight:700;margin:14px 0 5px}
+.btn{border:0;border-radius:12px;padding:13px 16px;background:var(--acc);color:var(--acc-ink);font-weight:700;cursor:pointer;text-decoration:none;display:inline-block;text-align:center}
+.btn.sec{background:var(--card);color:var(--acc)}
+.btn.rec{background:var(--bad);color:#fff}
+.btn.block{display:block;width:100%}
+.link{background:none;border:0;color:var(--acc);font-weight:700;padding:8px 0;cursor:pointer;display:flex;gap:8px;align-items:center}
+.link.bad{color:var(--bad)}
+.seg{display:flex;background:var(--card);border-radius:12px;padding:3px;margin:12px 0}
+.seg button{flex:1;border:0;background:transparent;padding:9px 4px;border-radius:10px;font-weight:700;color:var(--mute);cursor:pointer}
+.seg button.on{background:var(--bg);color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.12)}
+.chips{display:flex;gap:6px;overflow-x:auto;padding:2px 0 6px;scrollbar-width:none;flex-wrap:nowrap}
+.chip{border:0;background:var(--card);border-radius:10px;padding:8px 12px;font-weight:700;font-size:14px;white-space:nowrap;cursor:pointer;color:var(--ink)}
+.chip.on{background:var(--acc);color:var(--acc-ink)}
+.stages{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin:10px 0}
+.stage{border:0;background:var(--card);border-radius:12px;padding:10px 2px;font-weight:700;font-size:12.5px;cursor:pointer;color:var(--mute);line-height:1.15}
+.stage .e{display:block;font-size:24px;filter:grayscale(1);opacity:.5}
+.stage.on{color:var(--ink);outline:2px solid var(--acc)}.stage.on .e{filter:none;opacity:1}
+.appt{display:flex;gap:12px;align-items:center;background:var(--card);border-radius:14px;padding:12px 14px;margin:10px 0}
+.appt input{background:transparent;border:0;padding:0;font-weight:700;font-size:16px}
+.fab{position:fixed;right:max(16px,calc(50% - 264px));bottom:calc(env(safe-area-inset-bottom) + 86px);width:58px;height:58px;border-radius:50%;border:0;background:var(--acc);color:var(--acc-ink);font-size:30px;box-shadow:0 6px 18px rgba(0,0,0,.28);cursor:pointer}
+nav.bar{position:fixed;left:0;right:0;bottom:0;background:var(--bg);border-top:1px solid var(--line);display:flex;justify-content:center;padding-bottom:env(safe-area-inset-bottom);z-index:5}
+nav.bar>div{display:flex;width:100%;max-width:560px}
+nav.bar a{flex:1;text-align:center;padding:9px 0 8px;text-decoration:none;color:var(--mute);font-size:12px;font-weight:700;position:relative}
+nav.bar a .i{display:block;font-size:21px;line-height:1.2}
+nav.bar a.on{color:var(--acc)}
+nav.bar a .dot{position:absolute;top:4px;left:55%;background:var(--bad);color:#fff;border-radius:99px;font-size:11px;padding:0 6px;line-height:16px}
+nav.bar.act a{background:var(--card);margin:8px 4px;border-radius:12px;color:var(--acc);padding:10px 0}
+nav.bar.act a.off{opacity:.4;pointer-events:none}
+.sheet-bg{position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:flex-end;justify-content:center;z-index:10}
+.sheet{background:var(--bg);width:100%;max-width:560px;max-height:92vh;overflow:auto;border-radius:20px 20px 0 0;padding:16px 16px calc(env(safe-area-inset-bottom) + 20px)}
+.thumbs{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+.thumbs img{width:84px;height:84px;object-fit:cover;border-radius:10px}
+audio{width:100%;margin-top:8px}
+.todo{display:flex;gap:12px;align-items:center;padding:11px 0;border-bottom:1px solid var(--line)}
+.todo input[type=checkbox]{width:24px;height:24px;flex:none;accent-color:var(--acc);padding:0}
+.todo .d{width:auto;padding:5px 8px;font-size:13px;border-radius:8px}
+.todo.late .t2{color:var(--bad);font-weight:700}
+.ev{font-size:14px;padding:7px 0;border-top:1px solid var(--line)}.ev:first-child{border-top:0}
+.ev time{color:var(--mute);font-size:12px;display:block}
+.kv{display:flex;justify-content:space-between;gap:12px;padding:11px 0;border-bottom:1px solid var(--line)}.kv span:first-child{color:var(--mute)}.kv span:last-child{font-weight:700;text-align:right}
+.sugg{white-space:pre-wrap;background:var(--card);border-radius:12px;padding:12px;margin-top:10px}
+.toast{position:fixed;left:50%;bottom:110px;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:99px;font-size:14px;z-index:20}
+.banner{display:block;background:var(--acc);color:var(--acc-ink);border-radius:14px;padding:12px 14px;margin:6px 0 10px;text-decoration:none;font-weight:700}
+.center{text-align:center}.mt{margin-top:12px}
+details summary{cursor:pointer;color:var(--mute);font-weight:700;padding:10px 0}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script src="config.js"></script>
+<script>
+"use strict";
+/* ---------- utilità ---------- */
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const STAGES = { nuovo:["Contatto preso","🌰"], risposto:["Ha risposto","🌱"], fissato:["Appuntamento fissato","🌿"], iscritto:["Iscritto","🌳"], perso:["Non interessato","🥀"] };
+const CATS = { superiori:"Superiori", universita:"Università", lavoro:"Lavoro", genitore:"Genitore", altro:"Altro" };
+const INTEREST = { poco:"Poco", medio:"Medio", molto:"Molto" };
+const uid = () => (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(16).slice(2));
+const fmtDT = iso => iso ? new Date(iso).toLocaleString("it-IT",{weekday:"short",day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"}) : "";
+const fmtD = d => d ? new Date(d.length===10 ? d+"T00:00" : d).toLocaleDateString("it-IT",{day:"numeric",month:"short"}) : "";
+const fmtDay = iso => new Date(iso).toLocaleDateString("it-IT",{weekday:"long",day:"numeric",month:"long"});
+const toLocalInput = iso => { if(!iso) return ""; const d=new Date(iso); d.setMinutes(d.getMinutes()-d.getTimezoneOffset()); return d.toISOString().slice(0,16); };
+const dayKey = iso => { const d=new Date(iso); d.setMinutes(d.getMinutes()-d.getTimezoneOffset()); return d.toISOString().slice(0,10); };
+const todayStr = () => dayKey(new Date().toISOString());
+const telDigits = p => String(p||"").replace(/[^\d+]/g,"");
+const waNumber = p => { let n = telDigits(p).replace(/^\+/,""); if(n.startsWith("00")) n=n.slice(2); if(n.length<=10 && !n.startsWith("39")) n="39"+n; return n; };
+function toast(t){ const e=document.createElement("div"); e.className="toast"; e.textContent=t; document.body.appendChild(e); setTimeout(()=>e.remove(),2600); }
+function resizeImage(file, max=1000){
+  return new Promise((res,rej)=>{
+    const img=new Image(), url=URL.createObjectURL(file);
+    img.onload=()=>{ const k=Math.min(1,max/Math.max(img.width,img.height)); const c=document.createElement("canvas");
+      c.width=Math.round(img.width*k); c.height=Math.round(img.height*k); c.getContext("2d").drawImage(img,0,0,c.width,c.height);
+      URL.revokeObjectURL(url); c.toBlob(b=>b?res(b):rej(new Error("img")),"image/jpeg",.82); };
+    img.onerror=()=>rej(new Error("img")); img.src=url;
+  });
+}
+const blobToDataURL = b => new Promise(r=>{const f=new FileReader(); f.onload=()=>r(f.result); f.readAsDataURL(b);});
+const DEFAULT_REMINDERS = ["Richiamare","Invito all'open day","Messaggio il giorno prima"];
+
+/* ---------- procedure di esempio ---------- */
+const DEFAULT_PLAYBOOK = `Scrivi qui le tue procedure. Un blocco per obiezione, separati da una riga vuota.
+
+Obiezione: non credo di riuscire a venire / sentiamoci più avanti
+Risposta: Non insistere sulla data. Riconosci l'impegno ("capisco, il periodo è pieno"). Chiedi qual è il vero ostacolo (tempo? dubbio sul valore?). Proponi un'alternativa breve (10 minuti al telefono) o fissa tu il prossimo contatto con una data precisa ("ti scrivo martedì alle 18, ok?").
+
+Obiezione: costa troppo / non ho budget
+Risposta: Non parlare di prezzo prima del valore. Chiedi cosa vorrebbe ottenere e quanto gli costa non risolverlo. Poi proponi la presentazione per capire se ha senso, senza impegno.
+
+Obiezione: devo pensarci / ne parlo con qualcuno
+Risposta: Chiedi cosa vuole valutare esattamente e se la persona coinvolta può partecipare alla presentazione.`;
+
+function localSuggest(message, playbook){
+  const blocks = String(playbook||"").split(/\n\s*\n/).filter(b=>/obiezione\s*:/i.test(b));
+  const words = String(message||"").toLowerCase().match(/[a-zàèéìòù]{4,}/g) || [];
+  let best=null, score=0;
+  for(const b of blocks){ const low=b.toLowerCase(); const s=words.filter(w=>low.includes(w)).length; if(s>score){score=s;best=b;} }
+  if(!best) return "Non ho trovato una procedura che corrisponda. Aggiungi questa obiezione nelle tue Procedure e la prossima volta te la propongo.";
+  const m = best.match(/risposta\s*:\s*([\s\S]*)/i);
+  return "Dalle tue procedure:\n\n" + (m ? m[1].trim() : best.trim());
+}
+
+/* ---------- livello dati ---------- */
+const cfg = window.APP_CONFIG || {};
+const DEMO = !cfg.SUPABASE_URL || new URLSearchParams(location.search).has("prova");
+const sb = (!DEMO && window.supabase) ? window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY) : null;
+
+const LEAD_COLS = ["name","phone","email","city","status","category","age","who","need","utility","why","objections","interest","notes","appointment_at","event_id"];
+const pick = o => Object.fromEntries(LEAD_COLS.filter(k=>k in o).map(k=>[k,o[k]]));
+const BLANK = { name:"",phone:"",email:"",city:"",status:"nuovo",category:"",age:"",who:"",need:"",utility:"",why:"",objections:"",interest:"",notes:"",appointment_at:null,event_id:null };
+let ME = DEMO ? "demo" : null;
+const eventStats = leads => ({ tot:leads.length, fissati:leads.filter(l=>["fissato","iscritto"].includes(l.status)).length, iscritti:leads.filter(l=>l.status==="iscritto").length });
+
+const localDB = (()=>{
+  const KEY="leadkeeper_demo_v2";
+  const save = d => { try{ localStorage.setItem(KEY, JSON.stringify(d)); }catch{ toast("Memoria del dispositivo piena"); } };
+  const mk = (o,days)=>{ const n=new Date().toISOString(); return {...BLANK,id:uid(),created_at:n,updated_at:n,files:[],events:[{id:uid(),kind:"creato",text:"Lead aggiunto",created_at:n}],
+    reminders:DEFAULT_REMINDERS.map(t=>({id:uid(),text:t,due_date:null,done:false})),...o}; };
+  const seed = () => { const t=todayStr(); return {playbook:DEFAULT_PLAYBOOK, leads:[
+    mk({name:"Giulia Rossi",phone:"333 1234567",city:"Roma",category:"universita",status:"fissato",interest:"molto",who:"Studentessa di Economia, ha visto il reel sul metodo di studio.",appointment_at:new Date(Date.now()+86400000).toISOString()}),
+    mk({name:"Marco Bianchi",phone:"347 7654321",city:"Catania",category:"lavoro",status:"risposto",interest:"medio",notes:"Mi ha scritto che non sa se riesce a venire alla presentazione."})
+  ]}; };
+  const load = () => { let d; try{ const s=localStorage.getItem(KEY); if(s) d=JSON.parse(s); }catch{} if(!d){ d=seed(); d.leads[1].reminders[0].due_date=todayStr(); save(d); } d.events ||= []; return d; };
+  const find = (d,id)=>d.leads.find(l=>l.id===id);
+  const strip = ({files,events,reminders,...l})=>({user_id:"demo",...l});
+  const fullEvent = (d,e)=>({...e, event_members:[{user_id:"demo",display_name:e.my_name||"Io"}], leads:d.leads.filter(l=>l.event_id===e.id).map(strip)});
+  return {
+    async list(){ return load().leads.map(strip).sort((a,b)=>b.updated_at.localeCompare(a.updated_at)); },
+    async get(id){ const d=load(); const l=find(d,id); if(!l) return null; const e=d.events.find(x=>x.id===l.event_id); return {user_id:"demo",...l,event_name:e?.name||"",event_owner:"demo",by_name:""}; },
+    async listEvents(){ const d=load(); return d.events.map(e=>fullEvent(d,e)); },
+    async getEvent(id){ const d=load(); const e=d.events.find(x=>x.id===id); return e?fullEvent(d,e):null; },
+    async createEvent(ev){ const d=load(); const e={id:uid(),owner_id:"demo",name:ev.name,starts_at:ev.starts_at,place:ev.place,code:"LK-"+uid().replace(/-/g,"").slice(0,8).toUpperCase(),my_name:ev.myName,created_at:new Date().toISOString()}; d.events.unshift(e); save(d); return e; },
+    async joinEvent(){ throw new Error("In modalità prova non puoi entrare negli eventi di altri"); },
+    async deleteEvent(id){ const d=load(); d.events=d.events.filter(e=>e.id!==id); d.leads.forEach(l=>{ if(l.event_id===id) l.event_id=null; }); save(d); },
+    async save(lead){ const d=load(); const now=new Date().toISOString();
+      if(lead.id){ const l=find(d,lead.id); Object.assign(l,pick(lead),{updated_at:now}); save(d); return l; }
+      const l={...BLANK,...pick(lead),id:uid(),created_at:now,updated_at:now,files:[],events:[],reminders:[]}; d.leads.push(l); save(d); return l; },
+    async create(id,lead,created){ const d=load(); let l=find(d,id); if(!l){ l={...BLANK,...pick(lead),id,created_at:created,updated_at:created,files:[],events:[],reminders:[]}; d.leads.push(l); save(d); } return l; },
+    async remove(id){ const d=load(); d.leads=d.leads.filter(l=>l.id!==id); save(d); },
+    async addFile(leadId,kind,blob){ const d=load(); find(d,leadId).files.push({id:uid(),kind,url:await blobToDataURL(blob),created_at:new Date().toISOString()}); save(d); },
+    async addEvent(leadId,kind,text){ const d=load(); const l=find(d,leadId); l.events.unshift({id:uid(),kind,text,created_at:new Date().toISOString()}); l.updated_at=new Date().toISOString(); save(d); },
+    async addReminders(leadId,items){ const d=load(); const l=find(d,leadId); const out=items.map(i=>({id:uid(),text:i.text,due_date:i.due_date||null,done:false})); l.reminders.push(...out); save(d); return out; },
+    async setReminder(leadId,rid,patch){ const d=load(); Object.assign(find(d,leadId).reminders.find(r=>r.id===rid),patch); save(d); },
+    async allReminders(){ return load().leads.flatMap(l=>l.reminders.filter(r=>!r.done&&r.due_date).map(r=>({...r,lead_id:l.id,lead_name:l.name||"Senza nome"}))); },
+    async getPlaybook(){ return load().playbook; },
+    async setPlaybook(t){ const d=load(); d.playbook=t; save(d); },
+    async suggest(lead,message,playbook){ return localSuggest(message,playbook); },
+    async fillProfile(){ throw new Error("Disponibile solo con Supabase e funzione AI attiva"); }
+  };
+})();
+
+const remoteDB = {
+  async uid(){ const {data}=await sb.auth.getSession(); return data.session.user.id; },
+  async list(){ const {data,error}=await sb.from("leads").select("*").eq("user_id",ME).order("updated_at",{ascending:false}); if(error) throw error; return data; },
+  async listEvents(){ const {data,error}=await sb.from("events").select("*, event_members(user_id,display_name), leads(id,status,user_id)").order("created_at",{ascending:false}); if(error) throw error; return data; },
+  async getEvent(id){ const {data,error}=await sb.from("events").select("*, event_members(user_id,display_name), leads(*)").eq("id",id).maybeSingle(); if(error) throw error; return data; },
+  async createEvent(ev){
+    const {data:e,error}=await sb.from("events").insert({name:ev.name,starts_at:ev.starts_at,place:ev.place}).select().single(); if(error) throw error;
+    const m=await sb.from("event_members").insert({event_id:e.id,user_id:ME,display_name:ev.myName}); if(m.error) throw m.error; return e; },
+  async joinEvent(code,name){ const {data,error}=await sb.rpc("join_event",{p_code:code,p_name:name}); if(error) throw error; return data; },
+  async deleteEvent(id){ const {error}=await sb.from("events").delete().eq("id",id); if(error) throw error; },
+  async get(id){
+    const {data:l,error}=await sb.from("leads").select("*, events(name,owner_id,event_members(user_id,display_name))").eq("id",id).maybeSingle(); if(error) throw error; if(!l) return null;
+    l.event_name=l.events?.name||""; l.event_owner=l.events?.owner_id||null;
+    l.by_name = l.user_id===ME ? "" : (l.events?.event_members||[]).find(m=>m.user_id===l.user_id)?.display_name || "un membro della squadra"; delete l.events;
+    const [f,e,r]=await Promise.all([ sb.from("lead_files").select("*").eq("lead_id",id).order("created_at"), sb.from("lead_events").select("*").eq("lead_id",id).order("created_at",{ascending:false}), sb.from("lead_reminders").select("*").eq("lead_id",id).order("created_at") ]);
+    l.files = await Promise.all((f.data||[]).map(async x=>{ const {data}=await sb.storage.from("lead-files").createSignedUrl(x.path,3600); return {...x,url:data?.signedUrl}; }));
+    l.events = e.data||[]; l.reminders = r.data||[]; return l; },
+  async save(lead){
+    const body={...pick(lead),updated_at:new Date().toISOString()};
+    const q = lead.id ? sb.from("leads").update(body).eq("id",lead.id) : sb.from("leads").insert(body);
+    const {data,error}=await q.select(); if(error) throw error;
+    if(!data?.length) throw new Error("Non hai i permessi per modificare questo lead"); return data[0]; },
+  async create(id,lead,created){ const {data,error}=await sb.from("leads").upsert({id,...pick(lead),created_at:created,updated_at:created}).select(); if(error) throw error; return data[0]; },
+  async remove(id){
+    const {data}=await sb.from("lead_files").select("path").eq("lead_id",id);
+    if(data?.length) await sb.storage.from("lead-files").remove(data.map(x=>x.path));
+    const {error}=await sb.from("leads").delete().eq("id",id); if(error) throw error; },
+  async addFile(leadId,kind,blob){
+    const u=await this.uid(); const ext=(blob.type.split("/")[1]||"bin").split(";")[0].replace("mpeg","mp3");
+    const path=`${u}/${leadId}/${Date.now()}.${ext}`;
+    const up=await sb.storage.from("lead-files").upload(path,blob,{contentType:blob.type}); if(up.error) throw up.error;
+    const {error}=await sb.from("lead_files").insert({lead_id:leadId,kind,path}); if(error) throw error; },
+  async addEvent(leadId,kind,text){
+    await sb.from("lead_events").insert({lead_id:leadId,kind,text});
+    await sb.from("leads").update({updated_at:new Date().toISOString()}).eq("id",leadId); },
+  async addReminders(leadId,items){ const {data,error}=await sb.from("lead_reminders").insert(items.map(i=>({lead_id:leadId,text:i.text,due_date:i.due_date||null}))).select(); if(error) throw error; return data; },
+  async setReminder(leadId,rid,patch){ const {error}=await sb.from("lead_reminders").update(patch).eq("id",rid); if(error) throw error; },
+  async allReminders(){ const {data,error}=await sb.from("lead_reminders").select("*, leads(name)").eq("done",false).not("due_date","is",null); if(error) throw error; return data.map(r=>({...r,lead_name:r.leads?.name||"Senza nome"})); },
+  async getPlaybook(){ const {data}=await sb.from("playbook").select("content").maybeSingle(); return data?.content ?? DEFAULT_PLAYBOOK; },
+  async setPlaybook(t){ const u=await this.uid(); const {error}=await sb.from("playbook").upsert({user_id:u,content:t,updated_at:new Date().toISOString()}); if(error) throw error; },
+  async suggest(lead,message,playbook){
+    try{ const {data,error}=await sb.functions.invoke("suggest",{body:{mode:"suggest",lead:{name:lead.name,status:lead.status,who:lead.who,need:lead.need,why:lead.why,objections:lead.objections,notes:lead.notes,events:(lead.events||[]).slice(0,8)},message,playbook}});
+      if(error||!data?.text) throw error||new Error("vuoto"); return data.text; }
+    catch{ return localSuggest(message,playbook) + "\n\n(Suggerimento semplice: la funzione AI non è ancora attiva.)"; } },
+  async fillProfile(lead,text){
+    const {data,error}=await sb.functions.invoke("suggest",{body:{mode:"profile",lead:{name:lead.name},message:text}});
+    if(error||!data?.profile) throw error||new Error("Funzione AI non attiva"); return data.profile; }
+};
+const db = DEMO ? localDB : remoteDB;
+
+/* ---------- coda offline: i lead presi senza rete restano sul dispositivo e partono appena torna la linea ---------- */
+const outbox = (()=>{ let dbp;
+  const open=()=>dbp ||= new Promise((res,rej)=>{ const r=indexedDB.open("leadkeeper",1); r.onupgradeneeded=()=>r.result.createObjectStore("outbox",{keyPath:"id"}); r.onsuccess=()=>res(r.result); r.onerror=()=>rej(r.error); });
+  const tx=async(mode,fn)=>{ const d=await open(); return new Promise((res,rej)=>{ const t=d.transaction("outbox",mode); const q=fn(t.objectStore("outbox")); t.oncomplete=()=>res(q.result); t.onerror=()=>rej(t.error); }); };
+  return { put:x=>tx("readwrite",s=>s.put(x)), del:id=>tx("readwrite",s=>s.delete(id)), mine:async()=>{ try{ return (await tx("readonly",s=>s.getAll())).filter(x=>x.me===ME); }catch{ return []; } } }; })();
+const isNetErr = e => !navigator.onLine || /failed to fetch|networkerror|load failed|network request failed/i.test(String(e?.message||e));
+// Crea il lead a tappe e ricorda le tappe già fatte: se la rete cade a metà, si riprende da lì senza doppioni.
+async function createLead(p){
+  if(!p.leadDone){ await db.create(p.id,p.lead,p.created); p.leadDone=true; }
+  if(!p.metaDone){ await db.addEvent(p.id,"creato","Lead aggiunto"); await db.addReminders(p.id,DEFAULT_REMINDERS.map(text=>({text}))); p.metaDone=true; }
+  while(p.files.length){ await db.addFile(p.id,p.files[0].kind,p.files[0].blob); p.files.shift(); }
+}
+let syncing=false;
+async function syncOutbox(){
+  if(DEMO||syncing||!ME) return 0; syncing=true; let sent=0;
+  try{ for(const p of await outbox.mine()){ try{ await createLead(p); await outbox.del(p.id); sent++; }catch(e){ await outbox.put(p).catch(()=>{}); if(isNetErr(e)) break; } } }
+  finally{ syncing=false; }
+  if(sent){ toast(sent===1?"1 lead in attesa inviato":sent+" lead in attesa inviati"); if((location.hash||"#/")==="#/") viewHome(); }
+  return sent;
+}
+window.addEventListener("online", syncOutbox);
+const normPhone = p => { let n=String(p||"").replace(/\D/g,""); if(n.startsWith("0039")) n=n.slice(4); else if(n.length>10&&n.startsWith("39")) n=n.slice(2); return n; };
+
+/* ---------- audio ---------- */
+let recorder=null, recChunks=[], recStream=null;
+async function startRec(){
+  recStream = await navigator.mediaDevices.getUserMedia({audio:true});
+  const mime = ["audio/mp4","audio/webm;codecs=opus","audio/webm"].find(m=>window.MediaRecorder && MediaRecorder.isTypeSupported(m));
+  recorder = new MediaRecorder(recStream, mime?{mimeType:mime}:undefined); recChunks=[];
+  recorder.ondataavailable = e => e.data.size && recChunks.push(e.data);
+  recorder.start();
+}
+function stopRec(){
+  return new Promise(res=>{ recorder.onstop=()=>{ recStream.getTracks().forEach(t=>t.stop()); res(new Blob(recChunks,{type:recorder.mimeType||"audio/webm"})); }; recorder.stop(); });
+}
+
+/* ---------- struttura ---------- */
+const app = $("#app");
+const state = { filter:"tutti", q:"", tab:"promemoria" };
+let cur = null, pendingCount = 0;
+
+function navBar(active){
+  const it=[["#/","👤","Lead","home"],["#/app","📅","Agenda","app"],["#/todo","🔔","Da fare","todo"],["#/eventi","👥","Eventi","ev"],["#/procedure","📖","Procedure","proc"]];
+  return `<nav class="bar"><div>${it.map(([h,i,t,k])=>`<a href="${h}" class="${k===active?"on":""}"><span class="i">${i}</span>${t}${k==="todo"&&pendingCount?`<span class="dot">${pendingCount}</span>`:""}</a>`).join("")}</div></nav>`;
+}
+async function refreshPending(){ try{ const t=todayStr(); pendingCount=(await db.allReminders()).filter(r=>r.due_date<=t).length; }catch{ pendingCount=0; } }
+let recovering=false;
+function route(){ const h=location.hash||"#/";
+  if(recovering) return viewNewPassword();
+  if(h.startsWith("#/lead/")) return viewLead(h.slice(7));
+  if(h.startsWith("#/evento/")) return viewEvent(h.slice(9));
+  if(h.startsWith("#/entra/")) return viewJoin(decodeURIComponent(h.slice(8)));
+  if(h==="#/eventi") return viewEvents();
+  if(h==="#/app") return viewAppointments(); if(h==="#/todo") return viewTodo(); if(h==="#/procedure") return viewPlaybook();
+  return viewHome(); }
+window.addEventListener("hashchange", route);
+const stageIcon = s => (STAGES[s]||["","🌰"])[1];
+const header = (kicker,title,extra="") => `<header class="top"><div><div class="kicker">${kicker}</div><h1>${title}</h1></div><div class="row">${extra}</div></header>`;
+
+/* ---------- home ---------- */
+async function viewHome(){
+  await refreshPending();
+  app.innerHTML = header(DEMO?"Modalità prova · dati su questo dispositivo":"LeadKeeper","I miei lead",DEMO?"":`<button class="chip" id="out">Esci</button>`) + `<div id="list" class="sub">Carico…</div><button class="fab" id="fab" aria-label="Nuovo lead">+</button>` + navBar("home");
+  $("#fab").onclick = ()=>openAdd(); if($("#out")) $("#out").onclick = async()=>{ await sb.auth.signOut(); boot(); };
+  const waiting = DEMO ? [] : await outbox.mine();
+  const waitHtml = waiting.length?`<div class="card">📥 <b>${waiting.length} ${waiting.length===1?"lead salvato":"lead salvati"} sul dispositivo</b>, in attesa di rete: ${waiting.map(w=>esc(w.lead.name||w.lead.phone||"senza nome")).join(", ")}.<br><button class="link" id="retry">Riprova a inviare ora</button></div>`:"";
+  const bindRetry=()=>{ if($("#retry")) $("#retry").onclick=async()=>{ if(!(await syncOutbox())) toast("Ancora senza rete: riprovo da solo appena torna"); }; };
+  let leads; try{ leads = await db.list(); }catch(e){ $("#list").className=""; $("#list").innerHTML=waitHtml+(isNetErr(e)?`<p class="sub center mt">📡 Sei senza rete.<br>Puoi comunque premere <b>+</b> e aggiungere lead: restano sul dispositivo e partono appena torna la linea.</p>`:`<p>Errore: ${esc(e.message)}</p>`); bindRetry(); return; }
+  const shown = leads.filter(l=>(state.filter==="tutti"||l.status===state.filter) && (!state.q || (l.name+" "+l.phone+" "+l.city).toLowerCase().includes(state.q.toLowerCase())));
+  const count = k => leads.filter(l=>l.status===k).length;
+  $("#list").className=""; $("#list").innerHTML = waitHtml +
+    (pendingCount?`<a class="banner" href="#/todo">🔔 ${pendingCount} ${pendingCount===1?"cosa da fare":"cose da fare"} oggi</a>`:"") +
+    `<input id="q" placeholder="Cerca nome, telefono o città" value="${esc(state.q)}">
+     <div class="chips mt"><button class="chip ${state.filter==="tutti"?"on":""}" data-f="tutti">Tutti ${leads.length}</button>${Object.entries(STAGES).map(([k,[t]])=>`<button class="chip ${state.filter===k?"on":""}" data-f="${k}">${t} ${count(k)}</button>`).join("")}</div>
+     <h2>${state.filter==="tutti"?"Tutti":STAGES[state.filter][0]} · ${shown.length}</h2>
+     ${shown.length?shown.map(l=>`<a class="item" href="#/lead/${l.id}"><span class="ic">${stageIcon(l.status)}</span><div class="grow"><div class="n">${esc(l.name||"Senza nome")}</div><div class="m">${esc(STAGES[l.status][0])}${l.category?" · "+CATS[l.category]:""}${l.city?" · "+esc(l.city):""}</div><div class="m" style="font-size:12px">Aggiunto il ${fmtD(l.created_at)}</div></div>${l.appointment_at?`<span class="date-pill">📅 ${fmtD(l.appointment_at)}</span>`:""}</a>`).join(""):`<p class="sub center mt">${leads.length?"Nessun lead con questo filtro.":"Ancora nessun lead. Premi + per aggiungere il primo."}</p>`}`;
+  bindRetry();
+  $("#q").oninput = e=>{ state.q=e.target.value; const pos=e.target.selectionStart; viewHome().then(()=>{const i=$("#q"); i.focus(); i.setSelectionRange(pos,pos);}); };
+  document.querySelectorAll(".chip[data-f]").forEach(c=>c.onclick=()=>{ state.filter=c.dataset.f; viewHome(); });
+}
+
+/* ---------- appuntamenti ---------- */
+async function viewAppointments(){
+  await refreshPending();
+  app.innerHTML = header("Open day e appuntamenti","Appuntamenti") + `<div id="b" class="sub">Carico…</div>` + navBar("app");
+  const leads=(await db.list()).filter(l=>l.appointment_at && l.status!=="perso").sort((a,b)=>a.appointment_at.localeCompare(b.appointment_at));
+  const t=todayStr(); const up=leads.filter(l=>dayKey(l.appointment_at)>=t), past=leads.filter(l=>dayKey(l.appointment_at)<t).reverse();
+  const groups={}; up.forEach(l=>(groups[dayKey(l.appointment_at)] ||= []).push(l));
+  const row = l=>`<a class="item" href="#/lead/${l.id}"><span class="ic">${stageIcon(l.status)}</span><div class="grow"><div class="n">${esc(l.name||"Senza nome")}</div><div class="m">${new Date(l.appointment_at).toLocaleTimeString("it-IT",{hour:"2-digit",minute:"2-digit"})}${l.city?" · "+esc(l.city):""}</div></div></a>`;
+  $("#b").className=""; $("#b").innerHTML = (Object.keys(groups).length?Object.entries(groups).map(([k,v])=>`<h2>${fmtDay(v[0].appointment_at)} · ${v.length} ${v.length===1?"persona":"persone"}</h2>${v.map(row).join("")}`).join(""):`<p class="sub center mt">Nessun appuntamento in programma.<br>Aprendo un lead puoi scegliere data e ora.</p>`)
+    + (past.length?`<details class="mt"><summary>Già fatti · ${past.length}</summary>${past.map(row).join("")}</details>`:"");
+}
+
+/* ---------- da fare ---------- */
+async function viewTodo(){
+  app.innerHTML = header("Promemoria con una data","Da fare") + `<div id="b" class="sub">Carico…</div>` + navBar("todo");
+  const rs=(await db.allReminders()).sort((a,b)=>a.due_date.localeCompare(b.due_date)); const t=todayStr();
+  pendingCount=rs.filter(r=>r.due_date<=t).length; $("nav.bar").outerHTML=navBar("todo");
+  const sec=(title,arr)=>arr.length?`<h2>${title} · ${arr.length}</h2>${arr.map(r=>`<div class="todo ${r.due_date<t?"late":""}"><input type="checkbox" data-l="${r.lead_id}" data-r="${r.id}"><a class="grow" href="#/lead/${r.lead_id}" style="text-decoration:none;color:inherit"><div style="font-weight:700">${esc(r.text)}</div><div class="t2 sub">${esc(r.lead_name)} · ${fmtD(r.due_date)}</div></a></div>`).join("")}`:"";
+  $("#b").className=""; $("#b").innerHTML = (sec("Scaduti",rs.filter(r=>r.due_date<t))+sec("Oggi",rs.filter(r=>r.due_date===t))+sec("Prossimi",rs.filter(r=>r.due_date>t))) || `<p class="sub center mt">Niente da fare. 🎉<br>Aggiungi una data ai promemoria dentro un lead.</p>`;
+  document.querySelectorAll(".todo input").forEach(c=>c.onchange=async()=>{ await db.setReminder(c.dataset.l,c.dataset.r,{done:true}); viewTodo(); });
+}
+
+/* ---------- aggiunta veloce ---------- */
+function openAdd(eventId=null, eventName=""){
+  const pend={ files:[] };
+  const bg=document.createElement("div"); bg.className="sheet-bg";
+  bg.innerHTML=`<div class="sheet"><div class="row"><h1 class="grow">Nuovo lead</h1><button class="chip" id="x">Chiudi</button></div>
+    ${eventId?`<p class="sub">👥 Per l'evento <b>${esc(eventName)}</b>: lo vedrà tutta la squadra.</p>`:""}
+    <label>Nome e cognome</label><input id="n" autocomplete="off" autofocus>
+    <label>Telefono</label><input id="p" type="tel" inputmode="tel">
+    <label>Screenshot della chat</label><input id="img" type="file" accept="image/*" multiple><div class="thumbs" id="th"></div>
+    <label>Nota vocale su di lui/lei</label>
+    <button class="btn sec block" id="rec" type="button">🎙️ Registra</button><div id="au"></div>
+    <label>Oppure scrivi una nota</label><textarea id="nt" placeholder="Chi è, cosa gli serve, come l'hai conosciuto…"></textarea>
+    <button class="btn block mt" id="ok">Salva lead</button></div>`;
+  document.body.appendChild(bg);
+  const close=()=>{ if(recorder&&recorder.state==="recording"){ recorder.stop(); recStream.getTracks().forEach(t=>t.stop()); } bg.remove(); };
+  bg.querySelector("#x").onclick=close; bg.onclick=e=>{ if(e.target===bg) close(); };
+  const th=bg.querySelector("#th");
+  bg.querySelector("#img").onchange=async e=>{ for(const f of e.target.files){ try{ const b=await resizeImage(f); pend.files.push({kind:"screenshot",blob:b}); const im=document.createElement("img"); im.src=URL.createObjectURL(b); th.appendChild(im);}catch{ toast("Immagine non valida"); } } e.target.value=""; };
+  const recBtn=bg.querySelector("#rec");
+  recBtn.onclick=async()=>{
+    try{
+      if(recorder&&recorder.state==="recording"){ const b=await stopRec(); pend.files.push({kind:"audio",blob:b}); const a=document.createElement("audio"); a.controls=true; a.src=URL.createObjectURL(b); bg.querySelector("#au").appendChild(a); recBtn.className="btn sec block"; recBtn.textContent="🎙️ Registra un altro audio"; }
+      else{ await startRec(); recBtn.className="btn rec block"; recBtn.textContent="⏹ Stop"; }
+    }catch{ toast("Microfono non disponibile: controlla i permessi"); }
+  };
+  bg.querySelector("#ok").onclick=async()=>{
+    const name=bg.querySelector("#n").value.trim(), phone=bg.querySelector("#p").value.trim();
+    if(!name&&!phone&&!pend.files.length){ toast("Inserisci almeno nome, telefono o uno screenshot"); return; }
+    if(recorder&&recorder.state==="recording"){ const b=await stopRec(); pend.files.push({kind:"audio",blob:b}); }
+    const btn=bg.querySelector("#ok"); btn.disabled=true; btn.textContent="Salvo…";
+    // doppioni: stesso numero già presente tra i miei lead o in questo evento
+    if(phone && normPhone(phone).length>=6){ try{
+      const pool=[...(await db.list()), ...(eventId?((await db.getEvent(eventId))?.leads||[]):[])];
+      const dup=pool.find(x=>x.phone&&normPhone(x.phone)===normPhone(phone));
+      if(dup && !confirm(`Questo numero è già salvato come "${dup.name||"senza nome"}" (aggiunto il ${fmtD(dup.created_at)}).\n\nOK = salva comunque un nuovo lead\nAnnulla = apri quello esistente`)){ bg.remove(); location.hash="#/lead/"+dup.id; return; }
+    }catch{} }
+    const p={ id:uid(), me:ME, created:new Date().toISOString(), files:pend.files,
+      lead:{name,phone,notes:bg.querySelector("#nt").value.trim(),status:"nuovo",event_id:eventId} };
+    try{
+      await createLead(p);
+      state.tab="promemoria"; bg.remove(); location.hash="#/lead/"+p.id;
+    }catch(e){
+      if(!DEMO && isNetErr(e)){ try{ await outbox.put(p); bg.remove(); toast("Senza rete: salvato sul dispositivo, lo invio appena torna la linea"); viewHome(); return; }catch{} }
+      btn.disabled=false; btn.textContent="Salva lead"; toast("Errore: "+e.message);
+    }
+  };
+}
+
+/* ---------- profilo lead ---------- */
+async function viewLead(id){
+  app.innerHTML=`<p class="sub" style="padding-top:30px">Carico…</p>`;
+  try{ cur=await db.get(id); }catch(e){ app.innerHTML=`<p>Errore: ${esc(e.message)}</p>`; return; }
+  if(!cur){ app.innerHTML=`<p><a class="back" href="#/">←</a> Lead non trovato.</p>`; return; }
+  renderLead();
+}
+const upd = async(patch, event)=>{ try{ Object.assign(cur,patch); await db.save({id:cur.id,...patch}); if(event){ await db.addEvent(cur.id,"stato",event); cur.events.unshift({text:event,created_at:new Date().toISOString()}); } }catch(e){ toast("Errore: "+e.message); } };
+function field(label,key,type="textarea",ph=""){ const v=esc(cur[key]); return `<label>${label}</label>`+(type==="textarea"?`<textarea data-k="${key}" placeholder="${esc(ph)}">${v}</textarea>`:`<input data-k="${key}" value="${v}" placeholder="${esc(ph)}">`); }
+
+function renderLead(){
+  const l=cur, tab=state.tab;
+  const bar = `<nav class="bar act"><div><a href="tel:${telDigits(l.phone)}" class="${l.phone?"":"off"}"><span class="i">📞</span>Chiama</a><a target="_blank" rel="noopener" href="https://wa.me/${waNumber(l.phone)}" class="${l.phone?"":"off"}"><span class="i">💬</span>WhatsApp</a><a href="mailto:${esc(l.email)}" class="${l.email?"":"off"}"><span class="i">✉️</span>Email</a></div></nav>`;
+  const backTo = l.event_id && l.user_id!==ME ? "#/evento/"+l.event_id : "#/";
+  app.innerHTML=`<header class="top"><div class="row"><a class="back" href="${backTo}">‹</a><div><div class="kicker">${esc(["Aggiunto il "+fmtD(l.created_at),l.city,l.category&&CATS[l.category]].filter(Boolean).join(" · "))}</div><h1>${esc(l.name||"Senza nome")}</h1></div></div></header>
+    ${l.event_id?`<a class="sub" href="#/evento/${l.event_id}" style="display:block;text-decoration:none">👥 Evento: <b>${esc(l.event_name)}</b>${l.by_name?" · preso da "+esc(l.by_name):""}</a>`:""}
+    <div class="stages">${Object.entries(STAGES).slice(0,4).map(([k,[t,e]])=>`<button class="stage ${l.status===k?"on":""}" data-s="${k}"><span class="e">${e}</span>${t}</button>`).join("")}</div>
+    <div class="appt"><span style="font-size:26px">📅</span><div class="grow"><div class="sub">Open day / appuntamento</div><input id="appt" type="datetime-local" value="${toLocalInput(l.appointment_at)}"></div></div>
+    ${l.appointment_at?`<div class="row" style="margin-top:-4px"><a class="chip" target="_blank" rel="noopener" href="${googleCalUrl(l)}">＋ Google Calendar</a><button class="chip" id="ics">＋ Calendario iPhone/Mac</button></div>`:""}
+    <div class="seg">${[["promemoria","Promemoria"],["appunti","Appunti"],["obiezioni","Obiezioni"],["info","Info"]].map(([k,t])=>`<button data-t="${k}" class="${tab===k?"on":""}">${t}</button>`).join("")}</div>
+    <div id="tab"></div>${bar}`;
+  document.querySelectorAll(".stage").forEach(b=>b.onclick=async()=>{ await upd({status:b.dataset.s},"Fase: "+STAGES[b.dataset.s][0]); renderLead(); });
+  $("#appt").onchange=async e=>{ const iso=e.target.value?new Date(e.target.value).toISOString():null;
+    await upd({appointment_at:iso, ...(iso&&["nuovo","risposto"].includes(l.status)?{status:"fissato"}:{})}, iso?"Appuntamento fissato: "+fmtDT(iso):"Appuntamento rimosso"); renderLead(); };
+  document.querySelectorAll(".seg button").forEach(b=>b.onclick=()=>{ state.tab=b.dataset.t; renderLead(); });
+  if($("#ics")) $("#ics").onclick=()=>downloadIcs(l);
+  ({promemoria:tabReminders,appunti:tabNotes,obiezioni:tabObjections,info:tabInfo})[tab]();
+}
+function bindFields(){ document.querySelectorAll("#tab [data-k]").forEach(el=>el.onchange=()=>upd({[el.dataset.k]:el.value.trim()})); }
+
+function tabReminders(){
+  const t=todayStr();
+  $("#tab").innerHTML=`${cur.reminders.map(r=>`<div class="todo ${r.due_date&&r.due_date<t&&!r.done?"late":""}"><input type="checkbox" data-r="${r.id}" ${r.done?"checked":""}><div class="grow t2" style="${r.done?"text-decoration:line-through;opacity:.5":"font-weight:600"}">${esc(r.text)}</div><input class="d" type="date" data-d="${r.id}" value="${r.due_date||""}"></div>`).join("")}
+    <div class="row mt"><input id="newr" placeholder="Nuovo promemoria…"><button class="btn" id="addr">Aggiungi</button></div>`;
+  document.querySelectorAll("#tab input[type=checkbox]").forEach(c=>c.onchange=async()=>{ const r=cur.reminders.find(x=>x.id===c.dataset.r); r.done=c.checked; await db.setReminder(cur.id,r.id,{done:r.done}); renderLead(); });
+  document.querySelectorAll("#tab input.d").forEach(c=>c.onchange=async()=>{ const r=cur.reminders.find(x=>x.id===c.dataset.d); r.due_date=c.value||null; await db.setReminder(cur.id,r.id,{due_date:r.due_date}); renderLead(); });
+  $("#addr").onclick=async()=>{ const v=$("#newr").value.trim(); if(!v) return; const [r]=await db.addReminders(cur.id,[{text:v}]); cur.reminders.push(r); renderLead(); };
+}
+
+function tabNotes(){
+  const shots=cur.files.filter(f=>f.kind==="screenshot"), auds=cur.files.filter(f=>f.kind==="audio");
+  $("#tab").innerHTML=`<p class="sub">🔒 Solo per te: la persona non li vede.</p>
+    ${shots.length?`<div class="thumbs">${shots.map(f=>`<a href="${f.url}" target="_blank" rel="noopener"><img src="${f.url}" alt="screenshot"></a>`).join("")}</div>`:""}
+    ${auds.map(f=>`<audio controls src="${f.url}"></audio>`).join("")}
+    <div class="row mt"><input id="addfile" type="file" accept="image/*,audio/*" class="grow"><button class="btn sec" id="recbtn">🎙️</button></div>
+    <label>Chi è</label><div class="chips">${Object.entries(CATS).map(([k,t])=>`<button class="chip ${cur.category===k?"on":""}" data-c="${k}">${t}</button>`).join("")}</div>
+    ${field("Età","age","input","–")}${field("Chi è, come ci ha conosciuti","who","textarea","Cosa fa, cosa studia, come ci ha conosciuti…")}
+    ${field("Bisogno","need","textarea","Di cosa ha bisogno nello studio?")}${field("Utilità","utility","textarea","A cosa gli servirebbe il corso?")}
+    ${field("Il suo perché","why","textarea","Perché vuole venire all'open day / fare il corso?")}
+    ${field("Preoccupazioni e obiezioni","objections","textarea","Dubbi, paure, cosa potrebbe ostacolarlo")}
+    <label>Interesse</label><div class="chips">${Object.entries(INTEREST).map(([k,t])=>`<button class="chip ${cur.interest===k?"on":""}" data-i="${k}">${t}</button>`).join("")}</div>
+    ${field("Altri appunti","notes","textarea","Tutto il resto…")}
+    <button class="btn sec block mt" id="fill">✨ Compila gli appunti dalle note</button>
+    <p class="sub">Scrivi o detta le note in "Altri appunti" e premi: l'AI riempie i campi vuoti. Richiede Supabase e la funzione AI attiva.</p>`;
+  bindFields();
+  document.querySelectorAll("[data-c]").forEach(b=>b.onclick=async()=>{ await upd({category:cur.category===b.dataset.c?"":b.dataset.c}); renderLead(); });
+  document.querySelectorAll("[data-i]").forEach(b=>b.onclick=async()=>{ await upd({interest:cur.interest===b.dataset.i?"":b.dataset.i}); renderLead(); });
+  $("#addfile").onchange=async e=>{ const f=e.target.files[0]; if(!f) return; try{ const isImg=f.type.startsWith("image/"); await db.addFile(cur.id,isImg?"screenshot":"audio",isImg?await resizeImage(f):f); cur=await db.get(cur.id); renderLead(); }catch(err){ toast("Errore: "+err.message); } };
+  const rb=$("#recbtn"); rb.onclick=async()=>{ try{
+    if(recorder&&recorder.state==="recording"){ const b=await stopRec(); await db.addFile(cur.id,"audio",b); await db.addEvent(cur.id,"audio","Nota vocale aggiunta"); cur=await db.get(cur.id); renderLead(); }
+    else{ await startRec(); rb.className="btn rec"; rb.textContent="⏹"; } }catch{ toast("Microfono non disponibile"); } };
+  $("#fill").onclick=async()=>{ const txt=[cur.who,cur.notes].filter(Boolean).join("\n"); if(!txt){ toast("Scrivi prima qualche nota"); return; }
+    $("#fill").disabled=true; $("#fill").textContent="Ci penso…";
+    try{ const p=await db.fillProfile(cur,txt); const patch={}; for(const k of ["age","who","need","utility","why","objections"]) if(p[k]&&!cur[k]) patch[k]=String(p[k]);
+      if(p.category in CATS && !cur.category) patch.category=p.category; if(p.interest in INTEREST && !cur.interest) patch.interest=p.interest;
+      await upd(patch); toast("Appunti compilati"); }catch(e){ toast(e.message||"Errore"); } renderLead(); };
+}
+
+function tabObjections(){
+  $("#tab").innerHTML=`<label style="margin-top:4px">Cosa ti ha scritto / detto?</label>
+    <textarea id="msg" placeholder="Es. «Non credo di riuscire a venire alla presentazione, ci sentiamo più avanti»"></textarea>
+    <button class="btn block mt" id="sug">Suggeriscimi come rispondere</button><div id="out"></div>
+    <p class="sub mt">Il suggerimento segue le tue <a href="#/procedure">Procedure</a>.</p>`;
+  $("#sug").onclick=async()=>{ const m=$("#msg").value.trim(); if(!m){ toast("Scrivi cosa ti ha detto"); return; }
+    $("#sug").disabled=true; $("#out").innerHTML=`<p class="sub">Ci penso…</p>`;
+    const t=await db.suggest(cur,m,await db.getPlaybook()); $("#sug").disabled=false; $("#out").innerHTML=`<div class="sugg">${esc(t)}</div>`; };
+}
+
+function tabInfo(){
+  const l=cur;
+  $("#tab").innerHTML=`${field("Nome e cognome","name","input")}${field("Telefono","phone","input")}${field("Email","email","input")}${field("Città","city","input")}
+    <div class="kv mt"><span>Aggiunto</span><span>${fmtDT(l.created_at)}</span></div>
+    <button class="link mt" id="np">⊖ Segna come non interessato</button><button class="link bad" id="del">🗑 Elimina il lead</button>
+    <h2>Storico</h2>${l.events.length?l.events.map(e=>`<div class="ev">${esc(e.text)}<time>${fmtDT(e.created_at)}</time></div>`).join(""):`<span class="sub">Nessun evento</span>`}`;
+  bindFields();
+  document.querySelectorAll("#tab [data-k]").forEach(el=>{ const old=el.onchange; el.onchange=async()=>{ await old(); if(["name","phone","email","city"].includes(el.dataset.k)) renderLead(); }; });
+  $("#np").onclick=async()=>{ await upd({status:"perso"},"Fase: Non interessato"); renderLead(); };
+  $("#del").onclick=async()=>{ if(confirm("Eliminare definitivamente questo lead?")){ await db.remove(l.id); location.hash="#/"; } };
+}
+
+/* ---------- calendario ---------- */
+const calStamp = d => d.toISOString().replace(/[-:]/g,"").replace(/\.\d{3}/,"");
+function calInfo(l){ const s=new Date(l.appointment_at), e=new Date(s.getTime()+3600000);
+  return { s, e, title:`Appuntamento: ${l.name||"lead"}`, details:[l.phone&&"Tel: "+l.phone, l.who, l.event_name&&"Evento: "+l.event_name].filter(Boolean).join("\n") }; }
+function googleCalUrl(l){ const c=calInfo(l);
+  return "https://calendar.google.com/calendar/render?action=TEMPLATE&text="+encodeURIComponent(c.title)+"&dates="+calStamp(c.s)+"/"+calStamp(c.e)+"&details="+encodeURIComponent(c.details); }
+function downloadIcs(l){ const c=calInfo(l); const e=s=>String(s).replace(/([,;\\])/g,"\\$1").replace(/\n/g,"\\n");
+  const ics=["BEGIN:VCALENDAR","VERSION:2.0","PRODID:-//LeadKeeper//IT","BEGIN:VEVENT","UID:"+l.id+"@leadkeeper","DTSTAMP:"+calStamp(new Date()),"DTSTART:"+calStamp(c.s),"DTEND:"+calStamp(c.e),"SUMMARY:"+e(c.title),"DESCRIPTION:"+e(c.details),"BEGIN:VALARM","TRIGGER:-PT1H","ACTION:DISPLAY","DESCRIPTION:"+e(c.title),"END:VALARM","END:VEVENT","END:VCALENDAR"].join("\r\n");
+  const a=document.createElement("a"); a.href=URL.createObjectURL(new Blob([ics],{type:"text/calendar"})); a.download="appuntamento.ics"; a.click(); }
+
+/* ---------- eventi condivisi ---------- */
+const inviteLink = code => location.origin+location.pathname+"#/entra/"+encodeURIComponent(code);
+async function viewEvents(){
+  await refreshPending();
+  app.innerHTML=header("Open day, volantinaggi, serate","Eventi")+`<div id="b" class="sub">Carico…</div>
+    <div class="row mt"><button class="btn sec grow" id="join">Entra con codice</button><button class="btn grow" id="new">＋ Crea evento</button></div>`+navBar("ev");
+  $("#join").onclick=()=>{ const c=prompt("Codice invito (es. LK-4F7A92C1)"); if(c) location.hash="#/entra/"+encodeURIComponent(c.trim()); };
+  $("#new").onclick=openNewEvent;
+  let evs; try{ evs=await db.listEvents(); }catch(e){ $("#b").innerHTML=`Errore: ${esc(e.message)}<br><span class="sub">Hai lanciato lo script <b>migration_01_eventi.sql</b> su Supabase?</span>`; return; }
+  $("#b").className=""; $("#b").innerHTML = evs.length ? evs.map(e=>{ const s=eventStats(e.leads||[]); return `<a class="card" href="#/evento/${e.id}" style="display:block;text-decoration:none;color:inherit"><div class="row"><div class="grow"><div style="font-weight:700;font-size:17px">${esc(e.name)}</div><div class="sub">${e.starts_at?fmtDT(e.starts_at)+" · ":""}${(e.event_members||[]).length} in squadra · ${s.tot} contatti${e.owner_id===ME?" · l'hai creato tu":""}</div></div><span>›</span></div></a>`; }).join("")
+    : `<p class="sub center mt">Nessun evento. Creane uno e condividi il codice con chi ti aiuta: tutti potranno inserire i contatti e tu li vedrai qui.</p>`;
+}
+function openNewEvent(){
+  const bg=document.createElement("div"); bg.className="sheet-bg";
+  bg.innerHTML=`<div class="sheet"><div class="row"><h1 class="grow">Nuovo evento</h1><button class="chip" id="x">Chiudi</button></div>
+    <label>Nome evento</label><input id="en" placeholder="Es. Open day Roma novembre">
+    <label>Data e ora (facoltativa)</label><input id="ed" type="datetime-local">
+    <label>Luogo (facoltativo)</label><input id="ep" placeholder="Es. Roma · Via Cristoforo Colombo 112">
+    <label>Il tuo nome nella squadra</label><input id="em" placeholder="Es. Marco">
+    <button class="btn block mt" id="ok">Crea evento</button></div>`;
+  document.body.appendChild(bg); bg.querySelector("#x").onclick=()=>bg.remove();
+  bg.querySelector("#ok").onclick=async()=>{ const name=bg.querySelector("#en").value.trim(); if(!name){ toast("Dai un nome all'evento"); return; }
+    const d=bg.querySelector("#ed").value;
+    try{ const e=await db.createEvent({name,starts_at:d?new Date(d).toISOString():null,place:bg.querySelector("#ep").value.trim(),myName:bg.querySelector("#em").value.trim()||"Organizzatore"}); bg.remove(); location.hash="#/evento/"+e.id; }
+    catch(err){ toast("Errore: "+err.message); } };
+}
+async function viewEvent(id){
+  app.innerHTML=`<p class="sub" style="padding-top:30px">Carico…</p>`;
+  let e; try{ e=await db.getEvent(id); }catch(err){ app.innerHTML=`<p>Errore: ${esc(err.message)}</p>`; return; }
+  if(!e){ app.innerHTML=`<p><a class="back" href="#/eventi">‹</a> Evento non trovato.</p>`; return; }
+  const leads=(e.leads||[]).sort((a,b)=>b.created_at.localeCompare(a.created_at)), s=eventStats(leads), owner=e.owner_id===ME;
+  const names=Object.fromEntries((e.event_members||[]).map(m=>[m.user_id,m.display_name]));
+  const pct=n=>s.tot?Math.round(n/s.tot*100)+"%":"–";
+  app.innerHTML=`<header class="top"><div class="row"><a class="back" href="#/eventi">‹</a><div><div class="kicker">${esc([e.starts_at&&fmtDT(e.starts_at),e.place].filter(Boolean).join(" · ")||"Evento")}</div><h1>${esc(e.name)}</h1></div></div></header>
+    <div class="card center"><div class="kicker">Codice invito</div><div class="cond" style="font-size:36px;color:var(--acc)">${esc(e.code)}</div>
+      <div class="row mt"><button class="btn grow" id="share">Invita la squadra</button><button class="btn sec grow" id="copy">Copia codice</button></div></div>
+    <div class="card" style="background:var(--acc);color:var(--acc-ink)"><div class="row center"><div class="grow"><div class="cond" style="font-size:34px">${s.tot}</div>contatti</div><div class="grow"><div class="cond" style="font-size:34px">${s.fissati}</div>fissati · ${pct(s.fissati)}</div><div class="grow"><div class="cond" style="font-size:34px">${s.iscritti}</div>iscritti · ${pct(s.iscritti)}</div></div></div>
+    <h2>La squadra · ${(e.event_members||[]).length}</h2>
+    ${(e.event_members||[]).map(m=>{ const ms=eventStats(leads.filter(l=>l.user_id===m.user_id)); return `<div class="kv"><span style="color:var(--ink);font-weight:700">${esc(m.display_name)}${m.user_id===ME?" (tu)":""}${m.user_id===e.owner_id?" · organizzatore":""}</span><span class="sub">${ms.tot} contatti · ${ms.fissati} fissati · ${ms.iscritti} iscritti</span></div>`; }).join("")}
+    <h2>Contatti dell'evento · ${leads.length}</h2>
+    ${leads.map(l=>`<a class="item" href="#/lead/${l.id}"><span class="ic">${stageIcon(l.status)}</span><div class="grow"><div class="n">${esc(l.name||"Senza nome")}</div><div class="m">${esc(STAGES[l.status][0])} · preso da ${esc(l.user_id===ME?"te":(names[l.user_id]||"?"))} · ${fmtD(l.created_at)}</div></div>${l.appointment_at?`<span class="date-pill">📅 ${fmtD(l.appointment_at)}</span>`:""}</a>`).join("")||`<p class="sub">Ancora nessun contatto.</p>`}
+    ${owner?`<button class="link bad mt" id="del">🗑 Elimina evento</button><p class="sub">I contatti non vengono cancellati: tornano solo a chi li ha presi.</p>`:""}
+    <button class="fab" id="fab" aria-label="Nuovo lead per l'evento">+</button>`+navBar("ev");
+  $("#fab").onclick=()=>openAdd(e.id,e.name);
+  $("#copy").onclick=async()=>{ try{ await navigator.clipboard.writeText(e.code); toast("Codice copiato"); }catch{ toast(e.code); } };
+  $("#share").onclick=async()=>{ const text=`Entra nella squadra per "${e.name}" su LeadKeeper: ${inviteLink(e.code)} (codice ${e.code})`;
+    if(navigator.share){ try{ await navigator.share({text}); }catch{} } else { try{ await navigator.clipboard.writeText(text); toast("Invito copiato: incollalo su WhatsApp"); }catch{ toast(text); } } };
+  if($("#del")) $("#del").onclick=async()=>{ if(confirm("Eliminare l'evento? I contatti restano a chi li ha inseriti.")){ await db.deleteEvent(e.id); location.hash="#/eventi"; } };
+}
+function viewJoin(code){
+  app.innerHTML=`<header class="top"><div class="row"><a class="back" href="#/eventi">‹</a><div><div class="kicker">Ti hanno invitato</div><h1>Entra nell'evento</h1></div></div></header>
+    <div class="card"><label style="margin-top:0">Codice invito</label><input id="c" value="${esc(code)}"><label>Il tuo nome (lo vede la squadra)</label><input id="n">
+    <div class="row mt"><a class="btn sec grow" href="#/eventi">Annulla</a><button class="btn grow" id="go">Entra</button></div></div>`;
+  $("#go").onclick=async()=>{ const n=$("#n").value.trim(); if(!n){ toast("Scrivi il tuo nome"); return; }
+    try{ const id=await db.joinEvent($("#c").value.trim(),n); location.hash="#/evento/"+id; }catch(e){ toast(e.message); } };
+}
+
+/* ---------- procedure ---------- */
+async function viewPlaybook(){
+  await refreshPending();
+  const t=await db.getPlaybook();
+  app.innerHTML=header("Come gestisci le obiezioni","Procedure")+`<p class="sub">Un blocco per obiezione ("Obiezione: …" e "Risposta: …"), separati da una riga vuota. I suggerimenti usano questo testo.</p>
+    <textarea id="pb" style="min-height:360px">${esc(t)}</textarea><button class="btn block mt" id="s">Salva</button>`+navBar("proc");
+  $("#s").onclick=async()=>{ try{ await db.setPlaybook($("#pb").value); toast("Salvato"); }catch(e){ toast("Errore: "+e.message); } };
+}
+
+/* ---------- accesso ---------- */
+function viewLogin(){
+  app.innerHTML=`<div class="center" style="padding-top:70px"><h1 style="font-size:40px">LeadKeeper</h1><p class="sub">LEARNIS Mind · Non perdere più nessun lead</p></div>
+    <div class="card mt"><label style="margin-top:0">Email</label><input id="e" type="email" autocomplete="email"><label>Password</label><input id="pw" type="password" autocomplete="current-password">
+    <button class="btn block mt" id="in">Accedi</button><button class="btn sec block mt" id="up">Crea account</button><p class="sub center" id="msg"></p><p class="center" style="margin:0"><button class="link" id="forgot" style="display:inline-flex">Password dimenticata?</button></p></div>
+    <p class="center"><a href="?prova" class="sub">Prova l'app con dati finti</a></p>`;
+  const go=async fn=>{ const {error,data}=await fn({email:$("#e").value.trim(),password:$("#pw").value}); if(error){ $("#msg").textContent=error.message; return; } if(!data.session){ $("#msg").textContent="Controlla la mail per confermare l'account, poi accedi."; return; } boot(); };
+  $("#forgot").onclick=async()=>{ const email=$("#e").value.trim(); if(!email){ $("#msg").textContent="Scrivi prima la tua email qui sopra, poi premi di nuovo."; return; }
+    const {error}=await sb.auth.resetPasswordForEmail(email,{redirectTo:location.origin+location.pathname});
+    $("#msg").textContent = error ? error.message : "Se l'email è registrata, ti arriva un messaggio con il link per scegliere una nuova password."; };
+  $("#in").onclick=()=>go(sb.auth.signInWithPassword.bind(sb.auth)); $("#up").onclick=()=>go(sb.auth.signUp.bind(sb.auth));
+}
+function viewNewPassword(){
+  app.innerHTML=`<div class="center" style="padding-top:70px"><h1>Nuova password</h1><p class="sub">Scegli la password con cui entrerai d'ora in poi.</p></div>
+    <div class="card mt"><label style="margin-top:0">Nuova password (almeno 6 caratteri)</label><input id="np1" type="password" autocomplete="new-password">
+    <button class="btn block mt" id="setpw">Salva password</button><p class="sub center" id="msg"></p></div>`;
+  $("#setpw").onclick=async()=>{ const {error}=await sb.auth.updateUser({password:$("#np1").value}); if(error){ $("#msg").textContent=error.message; return; }
+    recovering=false; history.replaceState(null,"",location.pathname); toast("Password aggiornata"); boot(); };
+}
+if(sb) sb.auth.onAuthStateChange(ev=>{ if(ev==="PASSWORD_RECOVERY"){ recovering=true; viewNewPassword(); } });
+async function boot(){
+  if(!DEMO){ const {data}=await sb.auth.getSession(); if(!data.session) return viewLogin(); ME=data.session.user.id; }
+  route(); syncOutbox();
+}
+boot();
+if("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(()=>{});
+</script>
+</body>
+</html>
