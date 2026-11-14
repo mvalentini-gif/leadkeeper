@@ -7,6 +7,9 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="LeadKeeper">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" href="icon-192.png">
 <title>LeadKeeper</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -83,6 +86,7 @@ details summary{cursor:pointer;color:var(--mute);font-weight:700;padding:10px 0}
 <body>
 <div id="app"></div>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
 <script src="config.js"></script>
 <script>
 "use strict";
@@ -141,11 +145,13 @@ const cfg = window.APP_CONFIG || {};
 const DEMO = !cfg.SUPABASE_URL || new URLSearchParams(location.search).has("prova");
 const sb = (!DEMO && window.supabase) ? window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY) : null;
 
-const LEAD_COLS = ["name","phone","email","city","status","category","age","who","need","utility","why","objections","interest","notes","appointment_at","event_id"];
+const LEAD_COLS = ["name","phone","email","city","status","category","age","who","need","utility","why","objections","interest","notes","appointment_at","event_id","presentation_id","confirmed","consent","consent_at","consent_text","source"];
 const pick = o => Object.fromEntries(LEAD_COLS.filter(k=>k in o).map(k=>[k,o[k]]));
-const BLANK = { name:"",phone:"",email:"",city:"",status:"nuovo",category:"",age:"",who:"",need:"",utility:"",why:"",objections:"",interest:"",notes:"",appointment_at:null,event_id:null };
+const BLANK = { name:"",phone:"",email:"",city:"",status:"nuovo",category:"",age:"",who:"",need:"",utility:"",why:"",objections:"",interest:"",notes:"",appointment_at:null,event_id:null,presentation_id:null,confirmed:false,consent:false,consent_at:null,consent_text:"",source:"manuale" };
 let ME = DEMO ? "demo" : null;
-const eventStats = leads => ({ tot:leads.length, fissati:leads.filter(l=>["fissato","iscritto"].includes(l.status)).length, iscritti:leads.filter(l=>l.status==="iscritto").length });
+const CONSENT_TEXT = "Acconsento a essere ricontattato/a dallo staff di LEARNIS Mind (telefono, messaggio o email) per ricevere informazioni sul corso e sugli open day. I miei dati non saranno ceduti a terzi e posso chiederne la cancellazione in qualsiasi momento.";
+const addDays = n => { const d=new Date(); d.setDate(d.getDate()+n); return dayKey(d.toISOString()); };
+const eventStats = leads => ({ tot:leads.length, risposto:leads.filter(l=>["risposto","fissato","iscritto"].includes(l.status)).length, qr:leads.filter(l=>l.source==="qr").length, consenso:leads.filter(l=>l.consent).length, fissati:leads.filter(l=>["fissato","iscritto"].includes(l.status)).length, iscritti:leads.filter(l=>l.status==="iscritto").length });
 
 const localDB = (()=>{
   const KEY="leadkeeper_demo_v2";
@@ -156,7 +162,7 @@ const localDB = (()=>{
     mk({name:"Giulia Rossi",phone:"333 1234567",city:"Roma",category:"universita",status:"fissato",interest:"molto",who:"Studentessa di Economia, ha visto il reel sul metodo di studio.",appointment_at:new Date(Date.now()+86400000).toISOString()}),
     mk({name:"Marco Bianchi",phone:"347 7654321",city:"Catania",category:"lavoro",status:"risposto",interest:"medio",notes:"Mi ha scritto che non sa se riesce a venire alla presentazione."})
   ]}; };
-  const load = () => { let d; try{ const s=localStorage.getItem(KEY); if(s) d=JSON.parse(s); }catch{} if(!d){ d=seed(); d.leads[1].reminders[0].due_date=todayStr(); save(d); } d.events ||= []; return d; };
+  const load = () => { let d; try{ const s=localStorage.getItem(KEY); if(s) d=JSON.parse(s); }catch{} if(!d){ d=seed(); d.leads[1].reminders[0].due_date=todayStr(); save(d); } d.events ||= []; d.presentations ||= []; return d; };
   const find = (d,id)=>d.leads.find(l=>l.id===id);
   const strip = ({files,events,reminders,...l})=>({user_id:"demo",...l});
   const fullEvent = (d,e)=>({...e, event_members:[{user_id:"demo",display_name:e.my_name||"Io"}], leads:d.leads.filter(l=>l.event_id===e.id).map(strip)});
@@ -168,6 +174,14 @@ const localDB = (()=>{
     async createEvent(ev){ const d=load(); const e={id:uid(),owner_id:"demo",name:ev.name,starts_at:ev.starts_at,place:ev.place,code:"LK-"+uid().replace(/-/g,"").slice(0,8).toUpperCase(),my_name:ev.myName,created_at:new Date().toISOString()}; d.events.unshift(e); save(d); return e; },
     async joinEvent(){ throw new Error("In modalità prova non puoi entrare negli eventi di altri"); },
     async deleteEvent(id){ const d=load(); d.events=d.events.filter(e=>e.id!==id); d.leads.forEach(l=>{ if(l.event_id===id) l.event_id=null; }); save(d); },
+    async listPresentations(){ return load().presentations.slice().sort((a,b)=>a.starts_at.localeCompare(b.starts_at)); },
+    async savePresentation(x){ const d=load(); const pr={id:uid(),user_id:"demo",event_id:null,created_at:new Date().toISOString(),...x}; d.presentations.push(pr); save(d); return pr; },
+    async deletePresentation(id){ const d=load(); d.presentations=d.presentations.filter(x=>x.id!==id); d.leads.forEach(l=>{ if(l.presentation_id===id) l.presentation_id=null; }); save(d); },
+    async publicEvent(code){ const e=load().events.find(x=>x.code.toUpperCase()===String(code).toUpperCase()); return e?{name:e.name,starts_at:e.starts_at,place:e.place}:null; },
+    async registerQr(a){ const d=load(); const e=d.events.find(x=>x.code.toUpperCase()===String(a.code).toUpperCase()); if(!e) throw new Error("Codice evento non valido");
+      if(d.leads.some(l=>l.event_id===e.id&&normPhone(l.phone)===normPhone(a.phone))) return; const n=new Date().toISOString();
+      d.leads.push({...BLANK,id:uid(),name:a.name,phone:a.phone,email:a.email,city:a.city,event_id:e.id,consent:true,consent_at:n,consent_text:a.consentText,source:"qr",created_at:n,updated_at:n,files:[],
+        events:[{id:uid(),kind:"creato",text:"Si è registrato/a dal QR · consenso privacy dato",created_at:n}],reminders:DEFAULT_REMINDERS.map(t=>({id:uid(),text:t,due_date:null,done:false}))}); save(d); },
     async save(lead){ const d=load(); const now=new Date().toISOString();
       if(lead.id){ const l=find(d,lead.id); Object.assign(l,pick(lead),{updated_at:now}); save(d); return l; }
       const l={...BLANK,...pick(lead),id:uid(),created_at:now,updated_at:now,files:[],events:[],reminders:[]}; d.leads.push(l); save(d); return l; },
@@ -195,6 +209,11 @@ const remoteDB = {
     const m=await sb.from("event_members").insert({event_id:e.id,user_id:ME,display_name:ev.myName}); if(m.error) throw m.error; return e; },
   async joinEvent(code,name){ const {data,error}=await sb.rpc("join_event",{p_code:code,p_name:name}); if(error) throw error; return data; },
   async deleteEvent(id){ const {error}=await sb.from("events").delete().eq("id",id); if(error) throw error; },
+  async listPresentations(){ const {data,error}=await sb.from("presentations").select("*").order("starts_at"); if(error) throw error; return data; },
+  async savePresentation(x){ const {data,error}=await sb.from("presentations").insert(x).select().single(); if(error) throw error; return data; },
+  async deletePresentation(id){ const {error}=await sb.from("presentations").delete().eq("id",id); if(error) throw error; },
+  async publicEvent(code){ const {data,error}=await sb.rpc("event_public",{p_code:code}); if(error) throw error; return data?.[0]||null; },
+  async registerQr(a){ const {error}=await sb.rpc("register_from_qr",{p_code:a.code,p_member:a.member,p_name:a.name,p_phone:a.phone,p_email:a.email,p_city:a.city,p_consent:a.consent,p_consent_text:a.consentText}); if(error) throw error; },
   async get(id){
     const {data:l,error}=await sb.from("leads").select("*, events(name,owner_id,event_members(user_id,display_name))").eq("id",id).maybeSingle(); if(error) throw error; if(!l) return null;
     l.event_name=l.events?.name||""; l.event_owner=l.events?.owner_id||null;
@@ -274,7 +293,7 @@ function stopRec(){
 /* ---------- struttura ---------- */
 const app = $("#app");
 const state = { filter:"tutti", q:"", tab:"promemoria" };
-let cur = null, pendingCount = 0;
+let cur = null, pendingCount = 0, presList = [];
 
 function navBar(active){
   const it=[["#/","👤","Lead","home"],["#/app","📅","Agenda","app"],["#/todo","🔔","Da fare","todo"],["#/eventi","👥","Eventi","ev"],["#/procedure","📖","Procedure","proc"]];
@@ -282,8 +301,9 @@ function navBar(active){
 }
 async function refreshPending(){ try{ const t=todayStr(); pendingCount=(await db.allReminders()).filter(r=>r.due_date<=t).length; }catch{ pendingCount=0; } }
 let recovering=false;
-function route(){ const h=location.hash||"#/";
+function route(){ const h=location.hash||"#/"; document.title="LeadKeeper";
   if(recovering) return viewNewPassword();
+  if(h.startsWith("#/modulo/")){ const [c,m]=h.slice(9).split("/"); return viewPublicForm(decodeURIComponent(c||""),m||""); }
   if(h.startsWith("#/lead/")) return viewLead(h.slice(7));
   if(h.startsWith("#/evento/")) return viewEvent(h.slice(9));
   if(h.startsWith("#/entra/")) return viewJoin(decodeURIComponent(h.slice(8)));
@@ -316,36 +336,77 @@ async function viewHome(){
   document.querySelectorAll(".chip[data-f]").forEach(c=>c.onclick=()=>{ state.filter=c.dataset.f; viewHome(); });
 }
 
-/* ---------- appuntamenti ---------- */
+/* ---------- grafico a torta con percentuale ---------- */
+function donut(n,tot,label="",size=76){ const part=tot?n/tot:0, r=26, c=2*Math.PI*r;
+  return `<div class="center" style="flex:1;min-width:0"><svg width="${size}" height="${size}" viewBox="0 0 64 64" role="img" aria-label="${tot?Math.round(part*100):0}%"><circle cx="32" cy="32" r="${r}" fill="none" stroke="var(--line)" stroke-width="8"/>${n?`<circle cx="32" cy="32" r="${r}" fill="none" stroke="var(--acc)" stroke-width="8" stroke-dasharray="${(part*c).toFixed(1)} ${c.toFixed(1)}" transform="rotate(-90 32 32)"/>`:""}<text x="32" y="37" text-anchor="middle" font-size="15" font-weight="700" fill="currentColor">${tot?Math.round(part*100):0}%</text></svg>${label?`<div style="font-weight:700;font-size:14px">${n} ${label}</div>`:""}</div>`; }
+const hhmm = iso => new Date(iso).toLocaleTimeString("it-IT",{hour:"2-digit",minute:"2-digit"});
+
+/* ---------- agenda: presentazioni e appuntamenti ---------- */
 async function viewAppointments(){
   await refreshPending();
-  app.innerHTML = header("Open day e appuntamenti","Appuntamenti") + `<div id="b" class="sub">Carico…</div>` + navBar("app");
-  const leads=(await db.list()).filter(l=>l.appointment_at && l.status!=="perso").sort((a,b)=>a.appointment_at.localeCompare(b.appointment_at));
-  const t=todayStr(); const up=leads.filter(l=>dayKey(l.appointment_at)>=t), past=leads.filter(l=>dayKey(l.appointment_at)<t).reverse();
-  const groups={}; up.forEach(l=>(groups[dayKey(l.appointment_at)] ||= []).push(l));
-  const row = l=>`<a class="item" href="#/lead/${l.id}"><span class="ic">${stageIcon(l.status)}</span><div class="grow"><div class="n">${esc(l.name||"Senza nome")}</div><div class="m">${new Date(l.appointment_at).toLocaleTimeString("it-IT",{hour:"2-digit",minute:"2-digit"})}${l.city?" · "+esc(l.city):""}</div></div></a>`;
-  $("#b").className=""; $("#b").innerHTML = (Object.keys(groups).length?Object.entries(groups).map(([k,v])=>`<h2>${fmtDay(v[0].appointment_at)} · ${v.length} ${v.length===1?"persona":"persone"}</h2>${v.map(row).join("")}`).join(""):`<p class="sub center mt">Nessun appuntamento in programma.<br>Aprendo un lead puoi scegliere data e ora.</p>`)
-    + (past.length?`<details class="mt"><summary>Già fatti · ${past.length}</summary>${past.map(row).join("")}</details>`:"");
+  app.innerHTML = header("Presentazioni e appuntamenti","Agenda",`<button class="chip" id="newp">＋ Presentazione</button>`) + `<div id="b" class="sub">Carico…</div>` + navBar("app");
+  $("#newp").onclick=()=>openNewPresentation(()=>viewAppointments());
+  let leads,pres; try{ [leads,pres]=await Promise.all([db.list(),db.listPresentations()]); }
+  catch(e){ $("#b").innerHTML=`Errore: ${esc(e.message)}<br>Hai lanciato lo script <b>migration_04_presentazioni_qr.sql</b> su Supabase?`; return; }
+  leads=leads.filter(l=>l.appointment_at && l.status!=="perso").sort((a,b)=>a.appointment_at.localeCompare(b.appointment_at));
+  const t=todayStr(), soon=Date.now()-3*3600000;
+  const row = l=>`<a class="item" href="#/lead/${l.id}"><span class="ic">${l.confirmed?"✅":stageIcon(l.status)}</span><div class="grow"><div class="n">${esc(l.name||"Senza nome")}</div><div class="m">${l.confirmed?"ha confermato":"da confermare"}${l.presentation_id?"":" · ore "+hhmm(l.appointment_at)}${l.phone?" · "+esc(l.phone):""}</div></div></a>`;
+  const presCard = pr=>{ const who=leads.filter(l=>l.presentation_id===pr.id), c=who.filter(l=>l.confirmed).length;
+    return `<div class="card"><div class="row"><div class="grow"><div style="font-weight:700;font-size:18px">${esc(pr.title)}</div><div class="sub">${fmtDT(pr.starts_at)}${pr.place?" · "+esc(pr.place):""}</div><div style="font-weight:700;margin-top:4px">${who.length} ${who.length===1?"fissato":"fissati"} · ${c} ${c===1?"confermato":"confermati"}</div></div><div style="width:76px;flex:none" title="Confermati sul totale dei fissati">${donut(c,who.length)}</div></div>
+      ${who.map(row).join("")||`<div class="sub mt">Ancora nessuno fissato. Apri un lead e scegli questa presentazione.</div>`}
+      ${pr.user_id===ME?`<button class="link bad" data-delp="${pr.id}">Elimina presentazione</button>`:""}</div>`; };
+  const upP=pres.filter(x=>new Date(x.starts_at).getTime()>=soon), pastP=pres.filter(x=>new Date(x.starts_at).getTime()<soon).reverse();
+  const free=leads.filter(l=>!l.presentation_id), upF=free.filter(l=>dayKey(l.appointment_at)>=t), pastF=free.filter(l=>dayKey(l.appointment_at)<t).reverse();
+  const groups={}; upF.forEach(l=>(groups[dayKey(l.appointment_at)] ||= []).push(l));
+  $("#b").className=""; $("#b").innerHTML =
+    `<h2>Prossime presentazioni · ${upP.length}</h2>` + (upP.map(presCard).join("") || `<p class="sub">Nessuna presentazione in programma. Premi <b>＋ Presentazione</b> per creare la prossima data: poi la scegli con un tocco dentro ogni lead.</p>`)
+    + (Object.keys(groups).length?`<h2>Altri appuntamenti</h2>`+Object.values(groups).map(v=>`<div class="sub" style="font-weight:700;margin-top:10px">${fmtDay(v[0].appointment_at)} · ${v.length} ${v.length===1?"persona":"persone"}</div>${v.map(row).join("")}`).join(""):"")
+    + ((pastP.length||pastF.length)?`<details class="mt"><summary>Già passati · ${pastP.length} presentazioni, ${pastF.length} appuntamenti</summary>${pastP.map(presCard).join("")}${pastF.map(row).join("")}</details>`:"");
+  document.querySelectorAll("[data-delp]").forEach(b=>b.onclick=async()=>{ if(confirm("Eliminare questa presentazione? I lead restano, ma perdono il collegamento.")){ await db.deletePresentation(b.dataset.delp); viewAppointments(); } });
+}
+async function openNewPresentation(done){
+  const bg=document.createElement("div"); bg.className="sheet-bg";
+  bg.innerHTML=`<div class="sheet"><div class="row"><h1 class="grow">Nuova presentazione</h1><button class="chip" id="x">Chiudi</button></div>
+    <label>Titolo</label><input id="pt" placeholder="Es. Open day Roma">
+    <label>Data e ora</label><input id="pd" type="datetime-local">
+    <label>Luogo (facoltativo)</label><input id="pp" placeholder="Es. Via Cristoforo Colombo 112">
+    <div id="pev"></div>
+    <button class="btn block mt" id="ok">Crea presentazione</button></div>`;
+  document.body.appendChild(bg); bg.querySelector("#x").onclick=()=>bg.remove();
+  db.listEvents().then(evs=>{ if(evs.length && bg.isConnected) bg.querySelector("#pev").innerHTML=`<label>Condividi con la squadra di un evento (facoltativo)</label><select id="pe"><option value="">Solo per me</option>${evs.map(e=>`<option value="${e.id}">${esc(e.name)}</option>`).join("")}</select>`; }).catch(()=>{});
+  bg.querySelector("#ok").onclick=async()=>{ const title=bg.querySelector("#pt").value.trim(), d=bg.querySelector("#pd").value;
+    if(!title||!d){ toast("Servono titolo, data e ora"); return; }
+    try{ const pr=await db.savePresentation({title,starts_at:new Date(d).toISOString(),place:bg.querySelector("#pp").value.trim(),event_id:bg.querySelector("#pe")?.value||null}); bg.remove(); done&&done(pr); }
+    catch(e){ toast("Errore: "+e.message); } };
 }
 
-/* ---------- da fare ---------- */
+/* ---------- da fare: la mattina guardi Oggi, la sera guardi Domani ---------- */
 async function viewTodo(){
-  app.innerHTML = header("Promemoria con una data","Da fare") + `<div id="b" class="sub">Carico…</div>` + navBar("todo");
-  const rs=(await db.allReminders()).sort((a,b)=>a.due_date.localeCompare(b.due_date)); const t=todayStr();
+  app.innerHTML = header("La mattina guarda Oggi · la sera guarda Domani","Da fare") + `<div id="b" class="sub">Carico…</div>` + navBar("todo");
+  const rs=(await db.allReminders()).sort((a,b)=>a.due_date.localeCompare(b.due_date)); const t=todayStr(), tm=addDays(1);
+  const appts=(await db.list().catch(()=>[])).filter(l=>l.appointment_at && l.status!=="perso").sort((a,b)=>a.appointment_at.localeCompare(b.appointment_at));
   pendingCount=rs.filter(r=>r.due_date<=t).length; $("nav.bar").outerHTML=navBar("todo");
-  const sec=(title,arr)=>arr.length?`<h2>${title} · ${arr.length}</h2>${arr.map(r=>`<div class="todo ${r.due_date<t?"late":""}"><input type="checkbox" data-l="${r.lead_id}" data-r="${r.id}"><a class="grow" href="#/lead/${r.lead_id}" style="text-decoration:none;color:inherit"><div style="font-weight:700">${esc(r.text)}</div><div class="t2 sub">${esc(r.lead_name)} · ${fmtD(r.due_date)}</div></a></div>`).join("")}`:"";
-  $("#b").className=""; $("#b").innerHTML = (sec("Scaduti",rs.filter(r=>r.due_date<t))+sec("Oggi",rs.filter(r=>r.due_date===t))+sec("Prossimi",rs.filter(r=>r.due_date>t))) || `<p class="sub center mt">Niente da fare. 🎉<br>Aggiungi una data ai promemoria dentro un lead.</p>`;
+  const sec=(title,arr)=>arr.length?`<div class="sub" style="font-weight:700;margin-top:12px">${title} · ${arr.length}</div>${arr.map(r=>`<div class="todo ${r.due_date<t?"late":""}"><input type="checkbox" data-l="${r.lead_id}" data-r="${r.id}"><a class="grow" href="#/lead/${r.lead_id}" style="text-decoration:none;color:inherit"><div style="font-weight:700">${esc(r.text)}</div><div class="t2 sub">${esc(r.lead_name)} · ${fmtD(r.due_date)}</div></a></div>`).join("")}`:"";
+  const apSec=(title,k)=>{ const arr=appts.filter(l=>dayKey(l.appointment_at)===k); return arr.length?`<div class="sub" style="font-weight:700;margin-top:12px">${title} · ${arr.length}</div>${arr.map(l=>`<a class="item" href="#/lead/${l.id}"><span class="ic">${l.confirmed?"✅":"📅"}</span><div class="grow"><div class="n">${esc(l.name||"Senza nome")}</div><div class="m">ore ${hhmm(l.appointment_at)} · ${l.confirmed?"ha confermato":"da confermare"}</div></div></a>`).join("")}`:""; };
+  const oggi = apSec("Vengono oggi",t)+sec("Scaduti",rs.filter(r=>r.due_date<t))+sec("Da fare oggi",rs.filter(r=>r.due_date===t));
+  const domani = apSec("Vengono domani",tm)+sec("Da fare domani",rs.filter(r=>r.due_date===tm));
+  const poi = sec("Prossimi giorni",rs.filter(r=>r.due_date>tm));
+  $("#b").className=""; $("#b").innerHTML =
+    `<h2>Oggi · ${fmtD(t)}</h2>${oggi||`<p class="sub">Niente in programma oggi. 🎉</p>`}
+     <h2>Domani · ${fmtD(tm)}</h2>${domani||`<p class="sub">Niente in programma domani.</p>`}
+     ${poi?`<h2>Più avanti</h2>${poi}`:""}`;
   document.querySelectorAll(".todo input").forEach(c=>c.onchange=async()=>{ await db.setReminder(c.dataset.l,c.dataset.r,{done:true}); viewTodo(); });
 }
 
 /* ---------- aggiunta veloce ---------- */
-function openAdd(eventId=null, eventName=""){
+function openAdd(eventId=null, eventName="", eventCode=""){
   const pend={ files:[] };
   const bg=document.createElement("div"); bg.className="sheet-bg";
   bg.innerHTML=`<div class="sheet"><div class="row"><h1 class="grow">Nuovo lead</h1><button class="chip" id="x">Chiudi</button></div>
-    ${eventId?`<p class="sub">👥 Per l'evento <b>${esc(eventName)}</b>: lo vedrà tutta la squadra.</p>`:""}
+    ${eventId?`<p class="sub">👥 Per l'evento <b>${esc(eventName)}</b>: lo vedrà tutta la squadra.</p><button class="btn sec block" id="useqr" type="button">📱 Lo compila dal suo telefono? Mostra il QR</button>`:""}
     <label>Nome e cognome</label><input id="n" autocomplete="off" autofocus>
     <label>Telefono</label><input id="p" type="tel" inputmode="tel">
+    <label class="row" style="font-weight:500;cursor:pointer"><input type="checkbox" id="cs" style="width:22px;height:22px;flex:none;padding:0"><span>Mi ha dato il consenso a essere ricontattato/a</span></label>
     <label>Screenshot della chat</label><input id="img" type="file" accept="image/*" multiple><div class="thumbs" id="th"></div>
     <label>Nota vocale su di lui/lei</label>
     <button class="btn sec block" id="rec" type="button">🎙️ Registra</button><div id="au"></div>
@@ -354,6 +415,7 @@ function openAdd(eventId=null, eventName=""){
   document.body.appendChild(bg);
   const close=()=>{ if(recorder&&recorder.state==="recording"){ recorder.stop(); recStream.getTracks().forEach(t=>t.stop()); } bg.remove(); };
   bg.querySelector("#x").onclick=close; bg.onclick=e=>{ if(e.target===bg) close(); };
+  if(bg.querySelector("#useqr")) bg.querySelector("#useqr").onclick=()=>{ close(); showQr(eventCode,eventName); };
   const th=bg.querySelector("#th");
   bg.querySelector("#img").onchange=async e=>{ for(const f of e.target.files){ try{ const b=await resizeImage(f); pend.files.push({kind:"screenshot",blob:b}); const im=document.createElement("img"); im.src=URL.createObjectURL(b); th.appendChild(im);}catch{ toast("Immagine non valida"); } } e.target.value=""; };
   const recBtn=bg.querySelector("#rec");
@@ -375,7 +437,8 @@ function openAdd(eventId=null, eventName=""){
       if(dup && !confirm(`Questo numero è già salvato come "${dup.name||"senza nome"}" (aggiunto il ${fmtD(dup.created_at)}).\n\nOK = salva comunque un nuovo lead\nAnnulla = apri quello esistente`)){ bg.remove(); location.hash="#/lead/"+dup.id; return; }
     }catch{} }
     const p={ id:uid(), me:ME, created:new Date().toISOString(), files:pend.files,
-      lead:{name,phone,notes:bg.querySelector("#nt").value.trim(),status:"nuovo",event_id:eventId} };
+      lead:{name,phone,notes:bg.querySelector("#nt").value.trim(),status:"nuovo",event_id:eventId,
+        ...(bg.querySelector("#cs").checked?{consent:true,consent_at:new Date().toISOString(),consent_text:CONSENT_TEXT}:{})} };
     try{
       await createLead(p);
       state.tab="promemoria"; bg.remove(); location.hash="#/lead/"+p.id;
@@ -390,6 +453,7 @@ function openAdd(eventId=null, eventName=""){
 async function viewLead(id){
   app.innerHTML=`<p class="sub" style="padding-top:30px">Carico…</p>`;
   try{ cur=await db.get(id); }catch(e){ app.innerHTML=`<p>Errore: ${esc(e.message)}</p>`; return; }
+  presList = await db.listPresentations().catch(()=>[]);
   if(!cur){ app.innerHTML=`<p><a class="back" href="#/">←</a> Lead non trovato.</p>`; return; }
   renderLead();
 }
@@ -399,20 +463,60 @@ function field(label,key,type="textarea",ph=""){ const v=esc(cur[key]); return `
 function renderLead(){
   const l=cur, tab=state.tab;
   const bar = `<nav class="bar act"><div><a href="tel:${telDigits(l.phone)}" class="${l.phone?"":"off"}"><span class="i">📞</span>Chiama</a><a target="_blank" rel="noopener" href="https://wa.me/${waNumber(l.phone)}" class="${l.phone?"":"off"}"><span class="i">💬</span>WhatsApp</a><a href="mailto:${esc(l.email)}" class="${l.email?"":"off"}"><span class="i">✉️</span>Email</a></div></nav>`;
+  const pr = presList.find(x=>x.id===l.presentation_id);
   const backTo = l.event_id && l.user_id!==ME ? "#/evento/"+l.event_id : "#/";
   app.innerHTML=`<header class="top"><div class="row"><a class="back" href="${backTo}">‹</a><div><div class="kicker">${esc(["Aggiunto il "+fmtD(l.created_at),l.city,l.category&&CATS[l.category]].filter(Boolean).join(" · "))}</div><h1>${esc(l.name||"Senza nome")}</h1></div></div></header>
     ${l.event_id?`<a class="sub" href="#/evento/${l.event_id}" style="display:block;text-decoration:none">👥 Evento: <b>${esc(l.event_name)}</b>${l.by_name?" · preso da "+esc(l.by_name):""}</a>`:""}
     <div class="stages">${Object.entries(STAGES).slice(0,4).map(([k,[t,e]])=>`<button class="stage ${l.status===k?"on":""}" data-s="${k}"><span class="e">${e}</span>${t}</button>`).join("")}</div>
-    <div class="appt"><span style="font-size:26px">📅</span><div class="grow"><div class="sub">Open day / appuntamento</div><input id="appt" type="datetime-local" value="${toLocalInput(l.appointment_at)}"></div></div>
-    ${l.appointment_at?`<div class="row" style="margin-top:-4px"><a class="chip" target="_blank" rel="noopener" href="${googleCalUrl(l)}">＋ Google Calendar</a><button class="chip" id="ics">＋ Calendario iPhone/Mac</button></div>`:""}
+    <div class="appt" id="pres" style="cursor:pointer"><span style="font-size:26px">📅</span><div class="grow"><div class="sub">Presentazione / appuntamento</div><div style="font-weight:700">${l.appointment_at?esc((pr?pr.title+" · ":"")+fmtDT(l.appointment_at)+(pr&&pr.place?" · "+pr.place:"")):"Nessuna: tocca per scegliere"}</div></div><span>›</span></div>
+    ${l.appointment_at?`<div class="chips" style="margin-top:-4px"><button class="chip ${l.confirmed?"on":""}" id="conf">${l.confirmed?"✅ Ha confermato":"Ha confermato?"}</button><a class="chip" target="_blank" rel="noopener" href="${googleCalUrl(l)}" style="text-decoration:none">＋ Google Calendar</a><button class="chip" id="ics">＋ Calendario iPhone/Mac</button></div>`:""}
+    <div class="sub" style="font-weight:700;margin-top:12px">Esito della chiamata</div>
+    <div class="chips" style="flex-wrap:wrap"><button class="chip" data-call="no">📵 Non ha risposto</button><button class="chip" data-call="later">🔁 Da richiamare</button><button class="chip" data-call="fix">📅 Fissato</button><button class="chip" data-call="lost">🚫 Non interessato</button></div>
     <div class="seg">${[["promemoria","Promemoria"],["appunti","Appunti"],["obiezioni","Obiezioni"],["info","Info"]].map(([k,t])=>`<button data-t="${k}" class="${tab===k?"on":""}">${t}</button>`).join("")}</div>
     <div id="tab"></div>${bar}`;
   document.querySelectorAll(".stage").forEach(b=>b.onclick=async()=>{ await upd({status:b.dataset.s},"Fase: "+STAGES[b.dataset.s][0]); renderLead(); });
-  $("#appt").onchange=async e=>{ const iso=e.target.value?new Date(e.target.value).toISOString():null;
-    await upd({appointment_at:iso, ...(iso&&["nuovo","risposto"].includes(l.status)?{status:"fissato"}:{})}, iso?"Appuntamento fissato: "+fmtDT(iso):"Appuntamento rimosso"); renderLead(); };
+  $("#pres").onclick=openPresPicker;
+  if($("#conf")) $("#conf").onclick=async()=>{ await upd({confirmed:!l.confirmed}, l.confirmed?"Conferma della presenza tolta":"Ha confermato la presenza"); renderLead(); };
+  document.querySelectorAll("[data-call]").forEach(b=>b.onclick=async()=>{ const k=b.dataset.call;
+    if(k==="no"){ await upd({},"Chiamata: non ha risposto"); await setCallback(addDays(1)); toast("Segnato. Promemoria: richiamare domani"); renderLead(); }
+    if(k==="later") openCallbackPicker();
+    if(k==="fix") openPresPicker();
+    if(k==="lost"){ if(confirm("Segnare come non interessato?")){ await upd({status:"perso"},"Chiamata: non interessato"); renderLead(); } }
+  });
   document.querySelectorAll(".seg button").forEach(b=>b.onclick=()=>{ state.tab=b.dataset.t; renderLead(); });
   if($("#ics")) $("#ics").onclick=()=>downloadIcs(l);
   ({promemoria:tabReminders,appunti:tabNotes,obiezioni:tabObjections,info:tabInfo})[tab]();
+}
+// promemoria "Richiamare": riusa quello aperto, altrimenti lo crea
+async function setCallback(due){
+  try{ const r=cur.reminders.find(x=>!x.done && /richiam/i.test(x.text));
+    if(r){ r.due_date=due; await db.setReminder(cur.id,r.id,{due_date:due}); }
+    else{ const [n]=await db.addReminders(cur.id,[{text:"Richiamare",due_date:due}]); cur.reminders.push(n); }
+  }catch(e){ toast("Errore: "+e.message); } }
+function openCallbackPicker(){
+  const bg=document.createElement("div"); bg.className="sheet-bg";
+  bg.innerHTML=`<div class="sheet"><div class="row"><h1 class="grow">Quando richiami?</h1><button class="chip" id="x">Chiudi</button></div>
+    <div class="chips mt" style="flex-wrap:wrap"><button class="chip" data-d="${addDays(1)}">Domani</button><button class="chip" data-d="${addDays(3)}">Tra 3 giorni</button><button class="chip" data-d="${addDays(7)}">Tra una settimana</button></div>
+    <label>Oppure scegli il giorno</label><div class="row"><input id="cd" type="date" min="${todayStr()}"><button class="btn" id="ok">OK</button></div></div>`;
+  document.body.appendChild(bg); bg.querySelector("#x").onclick=()=>bg.remove();
+  const go=async due=>{ if(!due) return; bg.remove(); await upd(cur.status==="nuovo"?{status:"risposto"}:{}, "Chiamata: da richiamare il "+fmtD(due)); await setCallback(due); toast("Promemoria: richiamare il "+fmtD(due)); renderLead(); };
+  bg.querySelectorAll("[data-d]").forEach(b=>b.onclick=()=>go(b.dataset.d)); bg.querySelector("#ok").onclick=()=>go(bg.querySelector("#cd").value);
+}
+function openPresPicker(){
+  const l=cur, soon=Date.now()-3*3600000, up=presList.filter(x=>new Date(x.starts_at).getTime()>=soon);
+  const bg=document.createElement("div"); bg.className="sheet-bg";
+  bg.innerHTML=`<div class="sheet"><div class="row"><h1 class="grow">A quale presentazione?</h1><button class="chip" id="x">Chiudi</button></div>
+    ${up.map(x=>`<button class="card" data-p="${x.id}" style="display:block;width:100%;text-align:left;border:${x.id===l.presentation_id?"2px solid var(--acc)":"0"};cursor:pointer"><div style="font-weight:700;font-size:17px">${esc(x.title)}</div><div class="sub">${fmtDT(x.starts_at)}${x.place?" · "+esc(x.place):""}</div></button>`).join("")||`<p class="sub">Non hai ancora presentazioni in programma.</p>`}
+    <button class="btn sec block" id="newp">＋ Nuova presentazione</button>
+    <label>Oppure un'altra data e ora</label><div class="row"><input id="cdt" type="datetime-local" value="${l.presentation_id?"":toLocalInput(l.appointment_at)}"><button class="btn" id="okdt">OK</button></div>
+    ${l.appointment_at?`<button class="link bad mt" id="rm">Togli l'appuntamento</button>`:""}</div>`;
+  document.body.appendChild(bg); bg.querySelector("#x").onclick=()=>bg.remove();
+  const fix = ["nuovo","risposto"].includes(l.status)?{status:"fissato"}:{};
+  const choose=async x=>{ bg.remove(); await upd({presentation_id:x.id,appointment_at:x.starts_at,confirmed:false,...fix},"Fissato per: "+x.title+" · "+fmtDT(x.starts_at)); renderLead(); };
+  bg.querySelectorAll("[data-p]").forEach(b=>b.onclick=()=>choose(presList.find(x=>x.id===b.dataset.p)));
+  bg.querySelector("#newp").onclick=()=>{ bg.remove(); openNewPresentation(async x=>{ presList.push(x); await choose(x); }); };
+  bg.querySelector("#okdt").onclick=async()=>{ const v=bg.querySelector("#cdt").value; if(!v){ toast("Scegli data e ora"); return; } const iso=new Date(v).toISOString(); bg.remove(); await upd({presentation_id:null,appointment_at:iso,confirmed:false,...fix},"Appuntamento fissato: "+fmtDT(iso)); renderLead(); };
+  if(bg.querySelector("#rm")) bg.querySelector("#rm").onclick=async()=>{ bg.remove(); await upd({presentation_id:null,appointment_at:null,confirmed:false},"Appuntamento rimosso"); renderLead(); };
 }
 function bindFields(){ document.querySelectorAll("#tab [data-k]").forEach(el=>el.onchange=()=>upd({[el.dataset.k]:el.value.trim()})); }
 
@@ -468,10 +572,14 @@ function tabInfo(){
   const l=cur;
   $("#tab").innerHTML=`${field("Nome e cognome","name","input")}${field("Telefono","phone","input")}${field("Email","email","input")}${field("Città","city","input")}
     <div class="kv mt"><span>Aggiunto</span><span>${fmtDT(l.created_at)}</span></div>
+    <div class="kv"><span>Arrivato da</span><span>${({qr:"QR all'evento",cattura:"Cattura"})[l.source]||"Inserito a mano"}</span></div>
+    <div class="kv"><span>Consenso privacy</span><span>${l.consent?"sì · "+fmtDT(l.consent_at):"non registrato"}</span></div>
+    ${l.consent?"":`<button class="link" id="cons">✔ Segna che ha dato il consenso</button>`}
     <button class="link mt" id="np">⊖ Segna come non interessato</button><button class="link bad" id="del">🗑 Elimina il lead</button>
     <h2>Storico</h2>${l.events.length?l.events.map(e=>`<div class="ev">${esc(e.text)}<time>${fmtDT(e.created_at)}</time></div>`).join(""):`<span class="sub">Nessun evento</span>`}`;
   bindFields();
   document.querySelectorAll("#tab [data-k]").forEach(el=>{ const old=el.onchange; el.onchange=async()=>{ await old(); if(["name","phone","email","city"].includes(el.dataset.k)) renderLead(); }; });
+  if($("#cons")) $("#cons").onclick=async()=>{ await upd({consent:true,consent_at:new Date().toISOString(),consent_text:CONSENT_TEXT},"Consenso privacy registrato"); renderLead(); };
   $("#np").onclick=async()=>{ await upd({status:"perso"},"Fase: Non interessato"); renderLead(); };
   $("#del").onclick=async()=>{ if(confirm("Eliminare definitivamente questo lead?")){ await db.remove(l.id); location.hash="#/"; } };
 }
@@ -479,7 +587,7 @@ function tabInfo(){
 /* ---------- calendario ---------- */
 const calStamp = d => d.toISOString().replace(/[-:]/g,"").replace(/\.\d{3}/,"");
 function calInfo(l){ const s=new Date(l.appointment_at), e=new Date(s.getTime()+3600000);
-  return { s, e, title:`Appuntamento: ${l.name||"lead"}`, details:[l.phone&&"Tel: "+l.phone, l.who, l.event_name&&"Evento: "+l.event_name].filter(Boolean).join("\n") }; }
+  return { s, e, title:`${(presList.find(x=>x.id===l.presentation_id)||{}).title||"Appuntamento"}: ${l.name||"lead"}`, details:[l.phone&&"Tel: "+l.phone, l.who, l.event_name&&"Evento: "+l.event_name].filter(Boolean).join("\n") }; }
 function googleCalUrl(l){ const c=calInfo(l);
   return "https://calendar.google.com/calendar/render?action=TEMPLATE&text="+encodeURIComponent(c.title)+"&dates="+calStamp(c.s)+"/"+calStamp(c.e)+"&details="+encodeURIComponent(c.details); }
 function downloadIcs(l){ const c=calInfo(l); const e=s=>String(s).replace(/([,;\\])/g,"\\$1").replace(/\n/g,"\\n");
@@ -522,14 +630,17 @@ async function viewEvent(id){
   app.innerHTML=`<header class="top"><div class="row"><a class="back" href="#/eventi">‹</a><div><div class="kicker">${esc([e.starts_at&&fmtDT(e.starts_at),e.place].filter(Boolean).join(" · ")||"Evento")}</div><h1>${esc(e.name)}</h1></div></div></header>
     <div class="card center"><div class="kicker">Codice invito</div><div class="cond" style="font-size:36px;color:var(--acc)">${esc(e.code)}</div>
       <div class="row mt"><button class="btn grow" id="share">Invita la squadra</button><button class="btn sec grow" id="copy">Copia codice</button></div></div>
-    <div class="card" style="background:var(--acc);color:var(--acc-ink)"><div class="row center"><div class="grow"><div class="cond" style="font-size:34px">${s.tot}</div>contatti</div><div class="grow"><div class="cond" style="font-size:34px">${s.fissati}</div>fissati · ${pct(s.fissati)}</div><div class="grow"><div class="cond" style="font-size:34px">${s.iscritti}</div>iscritti · ${pct(s.iscritti)}</div></div></div>
+    <button class="btn block" id="qr">📱 QR: la persona si iscrive dal suo telefono</button>
+    <div class="card mt" style="background:var(--acc);color:var(--acc-ink)"><div class="row center"><div class="grow"><div class="cond" style="font-size:34px">${s.tot}</div>contatti</div><div class="grow"><div class="cond" style="font-size:34px">${s.qr}</div>dal QR</div><div class="grow"><div class="cond" style="font-size:34px">${s.consenso}</div>con consenso</div></div></div>
+    <div class="row" style="align-items:flex-start;margin-top:14px">${donut(s.risposto,s.tot,"hanno risposto")}${donut(s.fissati,s.tot,"fissati")}${donut(s.iscritti,s.tot,"iscritti")}</div>
     <h2>La squadra · ${(e.event_members||[]).length}</h2>
     ${(e.event_members||[]).map(m=>{ const ms=eventStats(leads.filter(l=>l.user_id===m.user_id)); return `<div class="kv"><span style="color:var(--ink);font-weight:700">${esc(m.display_name)}${m.user_id===ME?" (tu)":""}${m.user_id===e.owner_id?" · organizzatore":""}</span><span class="sub">${ms.tot} contatti · ${ms.fissati} fissati · ${ms.iscritti} iscritti</span></div>`; }).join("")}
     <h2>Contatti dell'evento · ${leads.length}</h2>
-    ${leads.map(l=>`<a class="item" href="#/lead/${l.id}"><span class="ic">${stageIcon(l.status)}</span><div class="grow"><div class="n">${esc(l.name||"Senza nome")}</div><div class="m">${esc(STAGES[l.status][0])} · preso da ${esc(l.user_id===ME?"te":(names[l.user_id]||"?"))} · ${fmtD(l.created_at)}</div></div>${l.appointment_at?`<span class="date-pill">📅 ${fmtD(l.appointment_at)}</span>`:""}</a>`).join("")||`<p class="sub">Ancora nessun contatto.</p>`}
+    ${leads.map(l=>`<a class="item" href="#/lead/${l.id}"><span class="ic">${stageIcon(l.status)}</span><div class="grow"><div class="n">${esc(l.name||"Senza nome")}</div><div class="m">${esc(STAGES[l.status][0])} · preso da ${esc(l.user_id===ME?"te":(names[l.user_id]||"?"))} · ${fmtD(l.created_at)}${l.source==="qr"?" · 📱 QR":""}${l.consent?" · 🔒":""}</div></div>${l.appointment_at?`<span class="date-pill">📅 ${fmtD(l.appointment_at)}</span>`:""}</a>`).join("")||`<p class="sub">Ancora nessun contatto.</p>`}
     ${owner?`<button class="link bad mt" id="del">🗑 Elimina evento</button><p class="sub">I contatti non vengono cancellati: tornano solo a chi li ha presi.</p>`:""}
     <button class="fab" id="fab" aria-label="Nuovo lead per l'evento">+</button>`+navBar("ev");
-  $("#fab").onclick=()=>openAdd(e.id,e.name);
+  $("#fab").onclick=()=>openAdd(e.id,e.name,e.code);
+  $("#qr").onclick=()=>showQr(e.code,e.name);
   $("#copy").onclick=async()=>{ try{ await navigator.clipboard.writeText(e.code); toast("Codice copiato"); }catch{ toast(e.code); } };
   $("#share").onclick=async()=>{ const text=`Entra nella squadra per "${e.name}" su LeadKeeper: ${inviteLink(e.code)} (codice ${e.code})`;
     if(navigator.share){ try{ await navigator.share({text}); }catch{} } else { try{ await navigator.clipboard.writeText(text); toast("Invito copiato: incollalo su WhatsApp"); }catch{ toast(text); } } };
@@ -541,6 +652,42 @@ function viewJoin(code){
     <div class="row mt"><a class="btn sec grow" href="#/eventi">Annulla</a><button class="btn grow" id="go">Entra</button></div></div>`;
   $("#go").onclick=async()=>{ const n=$("#n").value.trim(); if(!n){ toast("Scrivi il tuo nome"); return; }
     try{ const id=await db.joinEvent($("#c").value.trim(),n); location.hash="#/evento/"+id; }catch(e){ toast(e.message); } };
+}
+
+/* ---------- QR e modulo pubblico (chi lo compila non ha un account) ---------- */
+const formLink = code => location.origin+location.pathname+"#/modulo/"+encodeURIComponent(code)+"/"+ME;
+function showQr(code,name){
+  const url=formLink(code); let svg="";
+  try{ const q=qrcode(0,"M"); q.addData(url); q.make(); svg=q.createSvgTag({cellSize:8,margin:2,scalable:true}); }catch{ svg=`<p style="color:#000">QR non disponibile senza rete: usa "Copia link".</p>`; }
+  const bg=document.createElement("div"); bg.className="sheet-bg";
+  bg.innerHTML=`<div class="sheet center"><div class="row"><h1 class="grow" style="text-align:left">Inquadra e iscriviti</h1><button class="chip" id="x">Chiudi</button></div>
+    <p class="sub">${esc(name)} · apri la fotocamera del telefono e inquadra</p>
+    <div style="background:#fff;border-radius:16px;padding:12px;max-width:340px;margin:0 auto">${svg}</div>
+    <p class="sub mt">I contatti iscritti da questo QR vengono assegnati a te.</p>
+    <button class="btn sec block" id="cp">Copia link del modulo</button></div>`;
+  document.body.appendChild(bg); bg.querySelector("#x").onclick=()=>bg.remove(); bg.onclick=e=>{ if(e.target===bg) bg.remove(); };
+  bg.querySelector("#cp").onclick=async()=>{ try{ await navigator.clipboard.writeText(url); toast("Link copiato"); }catch{ toast(url); } };
+}
+async function viewPublicForm(code,member){
+  document.title="Restiamo in contatto";
+  app.innerHTML=`<p class="sub" style="padding-top:30px">Carico…</p>`;
+  let ev=null; try{ ev=await db.publicEvent(code); }catch{}
+  if(!ev){ app.innerHTML=`<div class="center" style="padding-top:70px"><h1>Link non valido</h1><p class="sub">Chiedi di mostrarti di nuovo il QR.</p></div>`; return; }
+  app.innerHTML=`<header class="top"><div><div class="kicker">LEARNIS Mind · ${esc(ev.name)}</div><h1>Restiamo in contatto</h1></div></header>
+    <label>Nome e cognome</label><input id="fn" autocomplete="name">
+    <label>Telefono</label><input id="fp" type="tel" inputmode="tel" autocomplete="tel">
+    <label>Email <span class="sub" style="font-weight:400">(facoltativa)</span></label><input id="fe" type="email" autocomplete="email">
+    <label>Di dove sei? <span class="sub" style="font-weight:400">(facoltativo)</span></label><input id="fc" placeholder="Scrivi il comune, es. Latina">
+    <label class="card row" style="font-weight:500;align-items:flex-start;cursor:pointer;margin-top:16px"><input type="checkbox" id="fk" style="width:24px;height:24px;flex:none;margin-top:2px;padding:0"><span>${esc(CONSENT_TEXT)}</span></label>
+    <button class="btn block mt" id="fs">Invia</button><p class="center" id="fm" style="color:var(--bad);font-weight:600"></p>`;
+  $("#fs").onclick=async()=>{ const name=$("#fn").value.trim(), phone=$("#fp").value.trim(), m=$("#fm");
+    if(name.length<2){ m.textContent="Scrivi nome e cognome."; return; }
+    if(normPhone(phone).length<6){ m.textContent="Scrivi un numero di telefono valido."; return; }
+    if(!$("#fk").checked){ m.textContent="Per essere ricontattato/a serve spuntare il consenso."; return; }
+    $("#fs").disabled=true; $("#fs").textContent="Invio…"; m.textContent="";
+    try{ await db.registerQr({code,member:/^[0-9a-f-]{36}$/i.test(member)?member:null,name,phone,email:$("#fe").value.trim(),city:$("#fc").value.trim(),consent:true,consentText:CONSENT_TEXT});
+      app.innerHTML=`<div class="center" style="padding-top:80px"><div style="font-size:64px">🌱</div><h1>Grazie, ${esc(name.split(" ")[0])}!</h1><p class="sub">Abbiamo ricevuto i tuoi dati.<br>Ti ricontattiamo presto. Puoi chiudere questa pagina.</p></div>`; }
+    catch(e){ $("#fs").disabled=false; $("#fs").textContent="Invia"; m.textContent=isNetErr(e)?"Sembra che non ci sia rete. Riprova tra un attimo.":(e.message||"Qualcosa non ha funzionato. Riprova."); } };
 }
 
 /* ---------- procedure ---------- */
@@ -573,6 +720,7 @@ function viewNewPassword(){
 }
 if(sb) sb.auth.onAuthStateChange(ev=>{ if(ev==="PASSWORD_RECOVERY"){ recovering=true; viewNewPassword(); } });
 async function boot(){
+  if((location.hash||"").startsWith("#/modulo/")) return route();   // modulo pubblico: non serve l'accesso
   if(!DEMO){ const {data}=await sb.auth.getSession(); if(!data.session) return viewLogin(); ME=data.session.user.id; }
   route(); syncOutbox();
 }
