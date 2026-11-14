@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f2447">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Cattura">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" href="icon-192.png">
+<title>Cattura</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Barlow+Condensed:wght@700;800&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#fff;--card:#eef3fa;--ink:#0f2447;--mute:#6b7a94;--line:#dde4ef;--acc:#0a6cc8;--acc-ink:#fff;--bad:#d92d20;--ok:#0f7a55}
+@media (prefers-color-scheme:dark){:root{--bg:#0e1626;--card:#18233a;--ink:#eaf0fb;--mute:#93a3bf;--line:#27344f;--acc:#4a9af0;--acc-ink:#0b1220;--ok:#3ecf8e}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.4 "Barlow",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;-webkit-text-size-adjust:100%}
+#app{max-width:560px;margin:0 auto;padding:0 16px 60px}
+h1{font-family:"Barlow Condensed","Barlow",sans-serif;font-weight:800;font-size:32px;margin:0;line-height:1.05}
+h2{font-size:13px;margin:22px 0 8px;color:var(--mute);text-transform:uppercase;letter-spacing:.8px;font-weight:700}
+header.top{display:flex;align-items:flex-end;justify-content:space-between;gap:8px;padding:calc(env(safe-area-inset-top) + 16px) 0 12px}
+.kicker{font-size:13px;color:var(--mute);font-weight:600}.sub{color:var(--mute);font-size:14px}
+input,select,textarea,button{font:inherit;color:inherit}
+input,textarea{width:100%;padding:12px;border:1px solid var(--line);border-radius:12px;background:var(--bg)}
+textarea#t{min-height:120px;font-size:18px;resize:vertical}
+label{display:block;font-size:14px;font-weight:700;margin:14px 0 5px}
+.btn{border:0;border-radius:12px;padding:14px 16px;background:var(--acc);color:var(--acc-ink);font-weight:700;cursor:pointer;text-align:center}
+.btn.sec{background:var(--card);color:var(--acc)}.btn.rec{background:var(--bad);color:#fff}.btn.block{display:block;width:100%}
+.btn:disabled{opacity:.6}
+.chips{display:flex;gap:6px;flex-wrap:wrap}
+.chip{border:0;background:var(--card);border-radius:10px;padding:9px 12px;font-weight:700;font-size:14px;cursor:pointer;color:var(--ink)}
+.chip.on{background:var(--acc);color:var(--acc-ink)}
+.seg{display:flex;background:var(--card);border-radius:12px;padding:3px;margin:12px 0}
+.seg button{flex:1;border:0;background:transparent;padding:9px 4px;border-radius:10px;font-weight:700;color:var(--mute);cursor:pointer}
+.seg button.on{background:var(--bg);color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.12)}
+.card{background:var(--card);border-radius:14px;padding:12px 14px;margin:10px 0}
+.cap .txt{white-space:pre-wrap;font-size:16px;margin:4px 0}
+.cap .meta{font-size:13px;color:var(--mute);font-weight:600}
+.cap .acts{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.cap .acts button{border:0;background:var(--bg);border-radius:9px;padding:7px 10px;font-weight:700;font-size:13px;cursor:pointer;color:var(--acc)}
+.cap .acts button.bad{color:var(--bad)}.cap .acts button.ok{color:var(--ok)}
+audio{width:100%;margin-top:6px}
+.row{display:flex;gap:8px;align-items:center}.grow{flex:1;min-width:0}.mt{margin-top:12px}.center{text-align:center}
+.toast{position:fixed;left:50%;bottom:40px;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:99px;font-size:14px;z-index:20;max-width:90%}
+.link{background:none;border:0;color:var(--acc);font-weight:700;padding:8px 0;cursor:pointer}
+a{color:var(--acc)}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script src="../config.js"></script>
+<script>
+"use strict";
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const CATS = { idea:["Idea","💡"], promemoria:["Promemoria","🔔"], impegno:["Impegno","📅"], persona:["Persona da sentire","👤"], altro:["Altro","📌"] };
+const uid = () => (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(16).slice(2));
+const fmtDT = iso => iso ? new Date(iso).toLocaleString("it-IT",{weekday:"short",day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"}) : "";
+const fmtD = d => d ? new Date(d.length===10 ? d+"T00:00" : d).toLocaleDateString("it-IT",{weekday:"short",day:"numeric",month:"short"}) : "";
+function toast(t){ const e=document.createElement("div"); e.className="toast"; e.textContent=t; document.body.appendChild(e); setTimeout(()=>e.remove(),2600); }
+const blobToDataURL = b => new Promise(r=>{const f=new FileReader(); f.onload=()=>r(f.result); f.readAsDataURL(b);});
+const isNetErr = e => !navigator.onLine || /failed to fetch|networkerror|load failed|network request failed/i.test(String(e?.message||e));
+
+/* ---------- dati ---------- */
+const cfg = window.APP_CONFIG || {};
+const DEMO = !cfg.SUPABASE_URL || new URLSearchParams(location.search).has("prova");
+const sb = (!DEMO && window.supabase) ? window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY) : null;
+let ME = DEMO ? "demo" : null;
+
+const localDB = (()=>{ const KEY="cattura_demo_v1";
+  const load=()=>{ try{ return JSON.parse(localStorage.getItem(KEY))||[]; }catch{ return []; } };
+  const save=d=>{ try{ localStorage.setItem(KEY,JSON.stringify(d)); }catch{ toast("Memoria piena"); } };
+  return {
+    async list(){ return load().sort((a,b)=>b.created_at.localeCompare(a.created_at)); },
+    async create(p){ const d=load(); if(!d.find(x=>x.id===p.id)) d.push({id:p.id,category:p.category,text:p.text,due_date:p.due_date,created_at:p.created,status:"nuovo",result:"",audio_url:p.blob?await blobToDataURL(p.blob):null,audio_path:p.blob?"local":null}); save(d); },
+    async update(id,patch){ const d=load(); Object.assign(d.find(x=>x.id===id),patch); save(d); },
+    async remove(c){ save(load().filter(x=>x.id!==c.id)); },
+    async audioUrl(c){ return c.audio_url; },
+    async toLead(){ throw new Error("In modalità prova non c'è LeadKeeper collegato"); }
+  }; })();
+
+const remoteDB = {
+  async list(){ const {data,error}=await sb.from("captures").select("*").eq("user_id",ME).order("created_at",{ascending:false}).limit(300); if(error) throw error; return data; },
+  // Idempotente: se la rete cade a metà si può ripetere senza creare doppioni.
+  async create(p){
+    let audio_path=null;
+    if(p.blob){ const ext=(p.blob.type.split("/")[1]||"bin").split(";")[0]; audio_path=`${ME}/${p.id}/audio.${ext}`;
+      const up=await sb.storage.from("lead-files").upload(audio_path,p.blob,{contentType:p.blob.type});
+      if(up.error && !/exists/i.test(up.error.message)) throw up.error; }
+    const {error}=await sb.from("captures").upsert({id:p.id,category:p.category,text:p.text,due_date:p.due_date,audio_path,created_at:p.created}); if(error) throw error; },
+  async update(id,patch){ const {error}=await sb.from("captures").update(patch).eq("id",id); if(error) throw error; },
+  async remove(c){ if(c.audio_path) await sb.storage.from("lead-files").remove([c.audio_path]); const {error}=await sb.from("captures").delete().eq("id",c.id); if(error) throw error; },
+  async audioUrl(c){ const {data}=await sb.storage.from("lead-files").createSignedUrl(c.audio_path,3600); return data?.signedUrl; },
+  async toLead(c,name){
+    const {data,error}=await sb.from("leads").insert({name,notes:c.text,status:"nuovo"}).select().single(); if(error) throw error;
+    await sb.from("lead_events").insert({lead_id:data.id,kind:"creato",text:"Lead creato da Cattura"});
+    await sb.from("lead_reminders").insert([{lead_id:data.id,text:"Richiamare",due_date:c.due_date||null}]);
+    await this.update(c.id,{status:"smistato",lead_id:data.id,result:"Diventata un lead in LeadKeeper",sorted_at:new Date().toISOString()}); return data.id; }
+};
+const db = DEMO ? localDB : remoteDB;
+
+/* ---------- coda offline ---------- */
+const outbox = (()=>{ let dbp;
+  const open=()=>dbp ||= new Promise((res,rej)=>{ const r=indexedDB.open("cattura",1); r.onupgradeneeded=()=>r.result.createObjectStore("outbox",{keyPath:"id"}); r.onsuccess=()=>res(r.result); r.onerror=()=>rej(r.error); });
+  const tx=async(mode,fn)=>{ const d=await open(); return new Promise((res,rej)=>{ const t=d.transaction("outbox",mode); const q=fn(t.objectStore("outbox")); t.oncomplete=()=>res(q.result); t.onerror=()=>rej(t.error); }); };
+  return { put:x=>tx("readwrite",s=>s.put(x)), del:id=>tx("readwrite",s=>s.delete(id)), mine:async()=>{ try{ return (await tx("readonly",s=>s.getAll())).filter(x=>x.me===ME); }catch{ return []; } } }; })();
+let syncing=false;
+async function syncOutbox(){
+  if(DEMO||syncing||!ME) return 0; syncing=true; let sent=0;
+  try{ for(const p of await outbox.mine()){ try{ await db.create(p); await outbox.del(p.id); sent++; }catch(e){ if(isNetErr(e)) break; } } } finally{ syncing=false; }
+  if(sent){ toast(sent===1?"1 cattura in attesa inviata":sent+" catture in attesa inviate"); renderList(); }
+  return sent;
+}
+window.addEventListener("online", syncOutbox);
+
+/* ---------- audio ---------- */
+let recorder=null, recChunks=[], recStream=null, recBlob=null;
+async function startRec(){
+  recStream = await navigator.mediaDevices.getUserMedia({audio:true});
+  const mime = ["audio/mp4","audio/webm;codecs=opus","audio/webm"].find(m=>window.MediaRecorder && MediaRecorder.isTypeSupported(m));
+  recorder = new MediaRecorder(recStream, mime?{mimeType:mime}:undefined); recChunks=[];
+  recorder.ondataavailable = e => e.data.size && recChunks.push(e.data); recorder.start();
+}
+const stopRec = () => new Promise(res=>{ recorder.onstop=()=>{ recStream.getTracks().forEach(t=>t.stop()); res(new Blob(recChunks,{type:recorder.mimeType||"audio/webm"})); }; recorder.stop(); });
+
+/* ---------- schermata ---------- */
+const app = $("#app");
+const state = { cat:"", tab:"nuovo", filter:"" };
+
+function viewMain(){
+  app.innerHTML = `<header class="top"><div><div class="kicker">${DEMO?"Modalità prova · dati su questo dispositivo":"Butta dentro, smisti dopo"}</div><h1>Cattura</h1></div>${DEMO?"":`<button class="chip" id="out">Esci</button>`}</header>
+    <textarea id="t" placeholder="Cosa ti è venuto in mente?" autofocus></textarea>
+    <div class="row mt"><button class="btn sec grow" id="rec" type="button">🎙️ Nota vocale</button></div><div id="au"></div>
+    <label>Che cos'è? <span class="sub" style="font-weight:400">(se non lo sai, lascia vuoto)</span></label>
+    <div class="chips" id="cats">${Object.entries(CATS).filter(([k])=>k!=="altro").map(([k,[t,i]])=>`<button class="chip" data-c="${k}">${i} ${t}</button>`).join("")}</div>
+    <label>Entro quando? <span class="sub" style="font-weight:400">(facoltativo)</span></label><input id="d" type="date">
+    <button class="btn block mt" id="save">Cattura</button>
+    <div id="wait"></div>
+    <div class="seg"><button data-t="nuovo">Da smistare</button><button data-t="smistato">Smistate</button></div>
+    <div id="list" class="sub">Carico…</div>
+    ${DEMO?"":`<p class="center sub mt"><a href="../">Apri LeadKeeper</a></p>`}`;
+  if($("#out")) $("#out").onclick=async()=>{ await sb.auth.signOut(); boot(); };
+  document.querySelectorAll("#cats .chip").forEach(b=>b.onclick=()=>{ state.cat = state.cat===b.dataset.c ? "" : b.dataset.c; paintCats(); });
+  document.querySelectorAll(".seg button").forEach(b=>b.onclick=()=>{ state.tab=b.dataset.t; renderList(); });
+  const rb=$("#rec");
+  rb.onclick=async()=>{ try{
+    if(recorder&&recorder.state==="recording"){ recBlob=await stopRec(); rb.className="btn sec grow"; rb.textContent="🎙️ Registra di nuovo"; $("#au").innerHTML=`<audio controls src="${URL.createObjectURL(recBlob)}"></audio>`; }
+    else{ await startRec(); recBlob=null; $("#au").innerHTML=""; rb.className="btn rec grow"; rb.textContent="⏹ Stop"; }
+  }catch{ toast("Microfono non disponibile: controlla i permessi"); } };
+  $("#save").onclick=saveCapture;
+  paintCats(); renderList();
+}
+function paintCats(){ document.querySelectorAll("#cats .chip").forEach(b=>b.classList.toggle("on", b.dataset.c===state.cat)); }
+
+async function saveCapture(){
+  if(recorder&&recorder.state==="recording") recBlob=await stopRec();
+  const text=$("#t").value.trim();
+  if(!text && !recBlob){ toast("Scrivi qualcosa o registra una nota vocale"); return; }
+  const p={ id:uid(), me:ME, created:new Date().toISOString(), category:state.cat||"altro", text, due_date:$("#d").value||null, blob:recBlob };
+  const btn=$("#save"); btn.disabled=true; btn.textContent="Salvo…";
+  let msg="Catturato ✓";
+  try{ await db.create(p); }
+  catch(e){
+    if(!DEMO && isNetErr(e)){ try{ await outbox.put(p); msg="Senza rete: salvato qui, lo invio appena torna la linea"; }catch{ btn.disabled=false; btn.textContent="Cattura"; toast("Errore: "+e.message); return; } }
+    else{ btn.disabled=false; btn.textContent="Cattura"; toast("Errore: "+e.message); return; }
+  }
+  // pronto per la prossima
+  recBlob=null; state.cat=""; $("#t").value=""; $("#d").value=""; $("#au").innerHTML=""; $("#rec").className="btn sec grow"; $("#rec").textContent="🎙️ Nota vocale";
+  btn.disabled=false; btn.textContent="Cattura"; paintCats(); toast(msg); state.tab="nuovo"; renderList(); $("#t").focus();
+}
+
+async function renderList(){
+  document.querySelectorAll(".seg button").forEach(b=>b.classList.toggle("on", b.dataset.t===state.tab));
+  const waiting = DEMO ? [] : await outbox.mine();
+  $("#wait").innerHTML = waiting.length?`<div class="card">📥 <b>${waiting.length} in attesa di rete</b> (salvate su questo dispositivo). <button class="link" id="retry">Riprova ora</button></div>`:"";
+  if($("#retry")) $("#retry").onclick=async()=>{ if(!(await syncOutbox())) toast("Ancora senza rete"); };
+  let all; try{ all=await db.list(); }catch(e){ $("#list").innerHTML = isNetErr(e) ? `<p class="center">📡 Sei senza rete. Puoi comunque catturare: resta sul dispositivo e parte appena torna la linea.</p>` : `Errore: ${esc(e.message)}<br>Hai lanciato lo script <b>migration_03_cattura.sql</b> su Supabase?`; return; }
+  const todo=all.filter(c=>c.status==="nuovo"), done=all.filter(c=>c.status!=="nuovo");
+  const seg=document.querySelectorAll(".seg button"); seg[0].textContent=`Da smistare · ${todo.length}`; seg[1].textContent=`Smistate · ${done.length}`;
+  const items = state.tab==="nuovo" ? todo : done;
+  $("#list").className=""; $("#list").innerHTML = items.length ? items.map(c=>{ const [t,i]=CATS[c.category]||CATS.altro; return `<div class="card cap" data-id="${c.id}">
+      <div class="meta">${i} ${t} · ${fmtDT(c.created_at)}${c.due_date?` · <b>entro ${fmtD(c.due_date)}</b>`:""}</div>
+      ${c.text?`<div class="txt">${esc(c.text)}</div>`:""}${c.transcript?`<div class="txt sub">📝 ${esc(c.transcript)}</div>`:""}
+      ${c.audio_path?`<button class="link" data-a="play">▶︎ Ascolta la nota vocale</button><div class="aud"></div>`:""}
+      ${c.result?`<div class="meta">→ ${esc(c.result)}</div>`:""}
+      <div class="acts">${c.status==="nuovo"
+        ? `<button class="ok" data-a="done">✔ Smistata</button>${Object.entries(CATS).filter(([k])=>k!==c.category&&k!=="altro").map(([k,[tt,ii]])=>`<button data-a="cat" data-c="${k}" title="${tt}">${ii}</button>`).join("")}${c.category==="persona"&&!DEMO?`<button data-a="lead">➜ Crea lead</button>`:""}`
+        : `<button data-a="undo">↩︎ Rimetti da smistare</button>${c.lead_id?`<a href="../#/lead/${c.lead_id}" style="font-weight:700;font-size:13px;padding:7px 10px">Apri il lead</a>`:""}`}
+        <button class="bad" data-a="del">🗑</button></div></div>`; }).join("")
+    : `<p class="center">${state.tab==="nuovo"?"Niente da smistare. 🎉":"Ancora nessuna cattura smistata."}</p>`;
+  document.querySelectorAll(".cap [data-a]").forEach(b=>b.onclick=async()=>{
+    const c=all.find(x=>x.id===b.closest(".cap").dataset.id), a=b.dataset.a;
+    try{
+      if(a==="play"){ const u=await db.audioUrl(c); b.nextElementSibling.innerHTML=`<audio controls autoplay src="${u}"></audio>`; b.remove(); return; }
+      if(a==="done") await db.update(c.id,{status:"smistato",sorted_at:new Date().toISOString()});
+      if(a==="undo") await db.update(c.id,{status:"nuovo",sorted_at:null});
+      if(a==="cat") await db.update(c.id,{category:b.dataset.c});
+      if(a==="del"){ if(!confirm("Eliminare questa cattura?")) return; await db.remove(c); }
+      if(a==="lead"){ const name=prompt("Nome della persona:", c.text.split(/[\n,.]/)[0].slice(0,40)); if(!name) return; await db.toLead(c,name.trim()); toast("Lead creato in LeadKeeper"); }
+      renderList();
+    }catch(e){ toast("Errore: "+e.message); }
+  });
+}
+
+/* ---------- accesso ---------- */
+function viewLogin(){
+  app.innerHTML=`<div class="center" style="padding-top:70px"><h1 style="font-size:40px">Cattura</h1><p class="sub">Usa lo stesso account di LeadKeeper</p></div>
+    <div class="card mt"><label style="margin-top:0">Email</label><input id="e" type="email" autocomplete="email"><label>Password</label><input id="pw" type="password" autocomplete="current-password">
+    <button class="btn block mt" id="in">Accedi</button><p class="sub center" id="msg"></p></div>
+    <p class="center sub">Password dimenticata? Recuperala da <a href="../">LeadKeeper</a>.<br><a href="?prova">Prova con dati finti</a></p>`;
+  $("#in").onclick=async()=>{ const {error}=await sb.auth.signInWithPassword({email:$("#e").value.trim(),password:$("#pw").value}); if(error){ $("#msg").textContent=error.message; return; } boot(); };
+}
+async function boot(){
+  if(!DEMO){ const {data}=await sb.auth.getSession(); if(!data.session) return viewLogin(); ME=data.session.user.id; }
+  viewMain(); syncOutbox();
+}
+boot();
+if("serviceWorker" in navigator) navigator.serviceWorker.register("../sw.js").catch(()=>{});
+</script>
+</body>
+</html>
