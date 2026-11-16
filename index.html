@@ -71,6 +71,7 @@ nav.bar.act a.off{opacity:.4;pointer-events:none}
 audio{width:100%;margin-top:8px}
 .todo{display:flex;gap:12px;align-items:center;padding:11px 0;border-bottom:1px solid var(--line)}
 .todo input[type=checkbox]{width:24px;height:24px;flex:none;accent-color:var(--acc);padding:0}
+.clr{border:0;background:var(--card);color:var(--mute);border-radius:8px;width:30px;height:30px;font-size:15px;font-weight:700;cursor:pointer;flex:none;padding:0}
 .todo .d{width:auto;padding:5px 8px;font-size:13px;border-radius:8px}
 .todo.late .t2{color:var(--bad);font-weight:700}
 .ev{font-size:14px;padding:7px 0;border-top:1px solid var(--line)}.ev:first-child{border-top:0}
@@ -193,7 +194,7 @@ const localDB = (()=>{
     async remove(id){ const d=load(); d.leads=d.leads.filter(l=>l.id!==id); save(d); },
     async addFile(leadId,kind,blob){ const d=load(); find(d,leadId).files.push({id:uid(),kind,url:await blobToDataURL(blob),created_at:new Date().toISOString()}); save(d); },
     async addEvent(leadId,kind,text){ const d=load(); const l=find(d,leadId); l.events.unshift({id:uid(),kind,text,created_at:new Date().toISOString()}); l.updated_at=new Date().toISOString(); save(d); },
-    async addReminders(leadId,items){ const d=load(); const l=find(d,leadId); const out=items.map(i=>({id:uid(),text:i.text,due_date:i.due_date||null,done:false})); l.reminders.push(...out); save(d); return out; },
+    async addReminders(leadId,items){ const d=load(); const l=find(d,leadId); const out=items.map(i=>({id:uid(),text:i.text,due_date:i.due_date||null,due_time:i.due_time||null,done:false})); l.reminders.push(...out); save(d); return out; },
     async setReminder(leadId,rid,patch){ const d=load(); Object.assign(find(d,leadId).reminders.find(r=>r.id===rid),patch); save(d); },
     async allReminders(){ return load().leads.flatMap(l=>l.reminders.filter(r=>!r.done&&r.due_date).map(r=>({...r,lead_id:l.id,lead_name:l.name||"Senza nome"}))); },
     async getPlaybook(){ return load().playbook; },
@@ -243,7 +244,7 @@ const remoteDB = {
   async addEvent(leadId,kind,text){
     await sb.from("lead_events").insert({lead_id:leadId,kind,text});
     await sb.from("leads").update({updated_at:new Date().toISOString()}).eq("id",leadId); },
-  async addReminders(leadId,items){ const {data,error}=await sb.from("lead_reminders").insert(items.map(i=>({lead_id:leadId,text:i.text,due_date:i.due_date||null}))).select(); if(error) throw error; return data; },
+  async addReminders(leadId,items){ const {data,error}=await sb.from("lead_reminders").insert(items.map(i=>({lead_id:leadId,text:i.text,due_date:i.due_date||null,...(i.due_time?{due_time:i.due_time}:{})}))).select(); if(error) throw error; return data; },
   async setReminder(leadId,rid,patch){ const {error}=await sb.from("lead_reminders").update(patch).eq("id",rid); if(error) throw error; },
   async allReminders(){ const {data,error}=await sb.from("lead_reminders").select("*, leads(name)").eq("done",false).not("due_date","is",null); if(error) throw error; return data.map(r=>({...r,lead_name:r.leads?.name||"Senza nome"})); },
   async getPlaybook(){ const {data}=await sb.from("playbook").select("content").maybeSingle(); return data?.content ?? DEFAULT_PLAYBOOK; },
@@ -380,6 +381,7 @@ function groupedHtml(shown, totAll){
 /* ---------- grafico a torta con percentuale ---------- */
 function donut(n,tot,label="",size=76){ const part=tot?n/tot:0, r=26, c=2*Math.PI*r;
   return `<div class="center" style="flex:1;min-width:0"><svg width="${size}" height="${size}" viewBox="0 0 64 64" role="img" aria-label="${tot?Math.round(part*100):0}%"><circle cx="32" cy="32" r="${r}" fill="none" stroke="var(--line)" stroke-width="8"/>${n?`<circle cx="32" cy="32" r="${r}" fill="none" stroke="var(--acc)" stroke-width="8" stroke-dasharray="${(part*c).toFixed(1)} ${c.toFixed(1)}" transform="rotate(-90 32 32)"/>`:""}<text x="32" y="37" text-anchor="middle" font-size="15" font-weight="700" fill="currentColor">${tot?Math.round(part*100):0}%</text></svg>${label?`<div style="font-weight:700;font-size:14px">${n} ${label}</div>`:""}</div>`; }
+const tm5 = t => t ? String(t).slice(0,5) : "";   // "18:30:00" -> "18:30"
 const hhmm = iso => new Date(iso).toLocaleTimeString("it-IT",{hour:"2-digit",minute:"2-digit"});
 
 /* ---------- agenda: presentazioni e appuntamenti ---------- */
@@ -425,11 +427,15 @@ async function openNewPresentation(done){
 async function viewTodo(){
   app.innerHTML = header("La mattina guarda Oggi · la sera guarda Domani","Da fare") + `<div id="push"></div><div id="b" class="sub">Carico…</div>` + navBar("todo");
   renderPushCard();
-  const rs=(await db.allReminders()).sort((a,b)=>a.due_date.localeCompare(b.due_date)); const t=todayStr(), tm=addDays(1);
-  const appts=(await db.list().catch(()=>[])).filter(l=>l.appointment_at && l.status!=="perso").sort((a,b)=>a.appointment_at.localeCompare(b.appointment_at));
+  const allLeads=await db.list().catch(()=>[]);
+  const callDay=new Set(allLeads.filter(l=>l.call_at&&l.status!=="perso").map(l=>l.id+"|"+dayKey(l.call_at)));
+  // un "Richiamare" nello stesso giorno della chiamata fissata è la stessa cosa: lo mostro una volta sola
+  const rs=(await db.allReminders()).filter(r=>!(isCallRem(r)&&callDay.has(r.lead_id+"|"+r.due_date)))
+    .sort((a,b)=>(a.due_date+(tm5(a.due_time)||"99")).localeCompare(b.due_date+(tm5(b.due_time)||"99"))); const t=todayStr(), tm=addDays(1);
+  const appts=allLeads.filter(l=>l.appointment_at && l.status!=="perso").sort((a,b)=>a.appointment_at.localeCompare(b.appointment_at));
   pendingCount=rs.filter(r=>r.due_date<=t).length; $("nav.bar").outerHTML=navBar("todo");
-  const sec=(title,arr)=>arr.length?`<div class="sub" style="font-weight:700;margin-top:12px">${title} · ${arr.length}</div>${arr.map(r=>`<div class="todo ${r.due_date<t?"late":""}"><input type="checkbox" data-l="${r.lead_id}" data-r="${r.id}"><a class="grow" href="#/lead/${r.lead_id}" style="text-decoration:none;color:inherit"><div style="font-weight:700">${esc(r.text)}</div><div class="t2 sub">${esc(r.lead_name)} · ${fmtD(r.due_date)}</div></a></div>`).join("")}`:"";
-  const calls=(await db.list().catch(()=>[])).filter(l=>l.call_at && l.status!=="perso").sort((a,b)=>a.call_at.localeCompare(b.call_at));
+  const sec=(title,arr)=>arr.length?`<div class="sub" style="font-weight:700;margin-top:12px">${title} · ${arr.length}</div>${arr.map(r=>`<div class="todo ${r.due_date<t?"late":""}"><input type="checkbox" data-l="${r.lead_id}" data-r="${r.id}"><a class="grow" href="#/lead/${r.lead_id}" style="text-decoration:none;color:inherit"><div style="font-weight:700">${esc(r.text)}</div><div class="t2 sub">${esc(r.lead_name)} · ${fmtD(r.due_date)}${r.due_time?" · ore "+tm5(r.due_time):""}</div></a></div>`).join("")}`:"";
+  const calls=allLeads.filter(l=>l.call_at && l.status!=="perso").sort((a,b)=>a.call_at.localeCompare(b.call_at));
   const now=new Date();
   const callRow=l=>{ const late=new Date(l.call_at)<now; return `<a class="item" href="#/lead/${l.id}"><span class="ic" style="font-size:15px;font-weight:800;width:48px;${late?"color:var(--bad)":""}">${hhmm(l.call_at)}</span><div class="grow"><div class="n">${esc(l.name||"Senza nome")}</div><div class="m">📞 ${esc(l.phone||"nessun telefono")}${l.channel?" · "+esc(l.channel):""}${late?" · <b style='color:var(--bad)'>in ritardo</b>":""}</div></div></a>`; };
   const callSec=(title,arr)=>arr.length?`<div class="sub" style="font-weight:700;margin-top:12px">${title} · ${arr.length}</div>${arr.map(callRow).join("")}`:"";
@@ -500,7 +506,7 @@ function openAdd(eventId=null, eventName="", eventCode=""){
     <label>Telefono</label><input id="p" type="tel" inputmode="tel">
     <label>Fonte</label>${chanChips(eventId?"EVENTI":"")}
     <label>Chi l'ha generato</label><input id="gb" placeholder="Es. Marco, Giulia, nome del tutor…" autocomplete="off">
-    <label>📞 Chiamata fissata <span class="sub" style="font-weight:400">(facoltativa)</span></label><input id="ca" type="datetime-local">
+    <label>📞 Chiamata fissata <span class="sub" style="font-weight:400">(facoltativa)</span></label><div class="row"><input id="ca" type="datetime-local"><button type="button" class="clr" id="caclr" title="Togli" aria-label="Togli la chiamata fissata">✕</button></div>
     <label class="row" style="font-weight:500;cursor:pointer"><input type="checkbox" id="cs" style="width:22px;height:22px;flex:none;padding:0"><span>Mi ha dato il consenso a essere ricontattato/a</span></label>
     <label>Screenshot della chat</label><input id="img" type="file" accept="image/*" multiple><div class="thumbs" id="th"></div>
     <label>Nota vocale su di lui/lei</label>
@@ -510,6 +516,7 @@ function openAdd(eventId=null, eventName="", eventCode=""){
   document.body.appendChild(bg);
   const close=()=>{ if(recorder&&recorder.state==="recording"){ recorder.stop(); recStream.getTracks().forEach(t=>t.stop()); } bg.remove(); };
   bg.querySelector("#x").onclick=close; bg.onclick=e=>{ if(e.target===bg) close(); };
+  bg.querySelector("#caclr").onclick=()=>{ bg.querySelector("#ca").value=""; };
   let chan = eventId ? "EVENTI" : "";
   bg.querySelectorAll("[data-ch]").forEach(b=>b.onclick=()=>{ chan = chan===b.dataset.ch ? "" : b.dataset.ch; bg.querySelectorAll("[data-ch]").forEach(x=>x.classList.toggle("on",x.dataset.ch===chan)); });
   if(bg.querySelector("#useqr")) bg.querySelector("#useqr").onclick=()=>{ close(); showQr(eventCode,eventName); };
@@ -578,7 +585,7 @@ function renderLead(){
   $("#callbox").onclick=openCallAtPicker;
   if($("#conf")) $("#conf").onclick=async()=>{ await upd({confirmed:!l.confirmed}, l.confirmed?"Conferma della presenza tolta":"Ha confermato la presenza"); renderLead(); };
   document.querySelectorAll("[data-call]").forEach(b=>b.onclick=async()=>{ const k=b.dataset.call;
-    if(k==="no"){ await upd({call_at:null},"Chiamata: non ha risposto"); await setCallback(addDays(1)); toast("Segnato. Promemoria: richiamare domani"); renderLead(); }
+    if(k==="no") openCallbackPicker("Non ha risposto: quando richiami?","Chiamata: non ha risposto");
     if(k==="later") openCallbackPicker();
     if(k==="fix"){ if(cur.call_at) await upd({call_at:null}); openPresPicker(); }
     if(k==="lost"){ if(confirm("Segnare come non interessato?")){ await upd({status:"perso",call_at:null},"Chiamata: non interessato"); renderLead(); } }
@@ -597,27 +604,39 @@ function openCallAtPicker(){
     <label>Oppure scegli giorno e ora</label><div class="row"><input id="cat" type="datetime-local" value="${toLocalInput(cur.call_at)}"><button class="btn" id="ok">OK</button></div>
     ${cur.call_at?`<button class="link mt" id="done">✔ Chiamata fatta</button><button class="link bad" id="rm">Togli la chiamata fissata</button>`:""}</div>`;
   document.body.appendChild(bg); bg.querySelector("#x").onclick=()=>bg.remove();
-  const go=async iso=>{ bg.remove(); await upd({call_at:iso},"Chiamata fissata: "+fmtDT(iso)); toast("Chiamata fissata: "+fmtDT(iso)); renderLead(); };
+  const go=async iso=>{ bg.remove(); await upd({call_at:iso},"Chiamata fissata: "+fmtDT(iso));
+    const d=new Date(iso); await setCallback(dayKey(iso), d.toLocaleTimeString("it-IT",{hour:"2-digit",minute:"2-digit"})); toast("Chiamata fissata: "+fmtDT(iso)); renderLead(); };
   bg.querySelectorAll("[data-at]").forEach(b=>b.onclick=()=>go(b.dataset.at));
   bg.querySelector("#ok").onclick=()=>{ const v=bg.querySelector("#cat").value; if(!v){ toast("Scegli giorno e ora"); return; } go(new Date(v).toISOString()); };
-  if(bg.querySelector("#done")) bg.querySelector("#done").onclick=async()=>{ bg.remove(); await upd({call_at:null},"Chiamata fatta"); toast("Segnata. Ora scegli l'esito qui sotto"); renderLead(); };
-  if(bg.querySelector("#rm")) bg.querySelector("#rm").onclick=async()=>{ bg.remove(); await upd({call_at:null},"Chiamata fissata tolta"); renderLead(); };
+  if(bg.querySelector("#done")) bg.querySelector("#done").onclick=async()=>{ bg.remove(); await upd({call_at:null},"Chiamata fatta");
+    const r=cur.reminders.find(x=>!x.done&&isCallRem(x)); if(r){ r.done=true; await db.setReminder(cur.id,r.id,{done:true}).catch(()=>{}); } toast("Segnata. Ora scegli l'esito qui sotto"); renderLead(); };
+  if(bg.querySelector("#rm")) bg.querySelector("#rm").onclick=async()=>{ bg.remove(); await upd({call_at:null},"Chiamata fissata tolta");
+    const r=cur.reminders.find(x=>!x.done&&isCallRem(x)); if(r&&r.due_date){ r.due_date=null; r.due_time=null; await db.setReminder(cur.id,r.id,{due_date:null,due_time:null}).catch(()=>{}); } renderLead(); };
 }
-// promemoria "Richiamare": riusa quello aperto, altrimenti lo crea
-async function setCallback(due){
-  try{ const r=cur.reminders.find(x=>!x.done && /richiam/i.test(x.text));
-    if(r){ r.due_date=due; await db.setReminder(cur.id,r.id,{due_date:due}); }
-    else{ const [n]=await db.addReminders(cur.id,[{text:"Richiamare",due_date:due}]); cur.reminders.push(n); }
+const isCallRem = r => /richiam/i.test(r.text||"");
+async function saveReminder(r,patch){
+  try{ await db.setReminder(cur.id,r.id,patch);
+    if(isCallRem(r) && !r.done && r.due_date && r.due_time){ const iso=new Date(r.due_date+"T"+tm5(r.due_time)).toISOString();
+      if(iso!==cur.call_at) await upd({call_at:iso},"Chiamata fissata: "+fmtDT(iso)); }
   }catch(e){ toast("Errore: "+e.message); } }
-function openCallbackPicker(){
+// promemoria "Richiamare": riusa quello aperto, altrimenti lo crea (con giorno e ora)
+async function setCallback(due,time=null){
+  try{ const r=cur.reminders.find(x=>!x.done && isCallRem(x));
+    if(r){ r.due_date=due; r.due_time=time; await db.setReminder(cur.id,r.id,{due_date:due,due_time:time}); }
+    else{ const [n]=await db.addReminders(cur.id,[{text:"Richiamare",due_date:due,due_time:time}]); cur.reminders.push(n); }
+  }catch(e){ toast("Errore: "+e.message); } }
+function openCallbackPicker(title="Quando richiami?", eventText=""){
   const bg=document.createElement("div"); bg.className="sheet-bg";
-  bg.innerHTML=`<div class="sheet"><div class="row"><h1 class="grow">Quando richiami?</h1><button class="chip" id="x">Chiudi</button></div>
-    <div class="chips mt" style="flex-wrap:wrap"><button class="chip" data-d="${addDays(1)}">Domani</button><button class="chip" data-d="${addDays(3)}">Tra 3 giorni</button><button class="chip" data-d="${addDays(7)}">Tra una settimana</button></div>
-    <label>A che ora?</label><input id="ch" type="time" value="18:00">
+  bg.innerHTML=`<div class="sheet"><div class="row"><h1 class="grow">${esc(title)}</h1><button class="chip" id="x">Chiudi</button></div>
+    <label style="margin-top:6px">A che ora?</label><input id="ch" type="time" value="18:00">
+    <label>Che giorno?</label>
+    <div class="chips" style="flex-wrap:wrap">${new Date().getHours()<20?`<button class="chip" data-d="${todayStr()}">Oggi</button>`:""}<button class="chip" data-d="${addDays(1)}">Domani</button><button class="chip" data-d="${addDays(3)}">Tra 3 giorni</button><button class="chip" data-d="${addDays(7)}">Tra una settimana</button></div>
     <label>Oppure scegli il giorno</label><div class="row"><input id="cd" type="date" min="${todayStr()}"><button class="btn" id="ok">OK</button></div></div>`;
   document.body.appendChild(bg); bg.querySelector("#x").onclick=()=>bg.remove();
-  const go=async due=>{ if(!due) return; bg.remove(); const h=bg.querySelector("#ch")?.value||"18:00"; const iso=new Date(due+"T"+h).toISOString();
-    await upd({...(cur.status==="nuovo"?{status:"risposto"}:{}),call_at:iso}, "Chiamata: da richiamare il "+fmtDT(iso)); await setCallback(due); toast("Chiamata fissata: "+fmtDT(iso)); renderLead(); };
+  const go=async due=>{ if(!due) return; const h=bg.querySelector("#ch")?.value||"18:00"; const iso=new Date(due+"T"+h).toISOString();
+    if(new Date(iso)<new Date()){ toast("Quell'orario è già passato"); return; } bg.remove();
+    if(eventText) await db.addEvent(cur.id,"stato",eventText).then(()=>cur.events.unshift({text:eventText,created_at:new Date().toISOString()})).catch(()=>{});
+    await upd({...(cur.status==="nuovo"&&!eventText?{status:"risposto"}:{}),call_at:iso}, "Richiamo fissato: "+fmtDT(iso)); await setCallback(due,h); toast("Richiamo: "+fmtDT(iso)); renderLead(); };
   bg.querySelectorAll("[data-d]").forEach(b=>b.onclick=()=>go(b.dataset.d)); bg.querySelector("#ok").onclick=()=>go(bg.querySelector("#cd").value);
 }
 function openPresPicker(){
@@ -640,10 +659,19 @@ function bindFields(){ document.querySelectorAll("#tab [data-k]").forEach(el=>el
 
 function tabReminders(){
   const t=todayStr();
-  $("#tab").innerHTML=`${cur.reminders.map(r=>`<div class="todo ${r.due_date&&r.due_date<t&&!r.done?"late":""}"><input type="checkbox" data-r="${r.id}" ${r.done?"checked":""}><div class="grow t2" style="${r.done?"text-decoration:line-through;opacity:.5":"font-weight:600"}">${esc(r.text)}</div><input class="d" type="date" data-d="${r.id}" value="${r.due_date||""}"></div>`).join("")}
+  $("#tab").innerHTML=`${cur.reminders.map(r=>`<div class="todo ${r.due_date&&r.due_date<t&&!r.done?"late":""}"><input type="checkbox" data-r="${r.id}" ${r.done?"checked":""}><div class="grow t2" style="${r.done?"text-decoration:line-through;opacity:.5":"font-weight:600"}">${esc(r.text)}</div><div style="display:flex;flex-direction:column;gap:4px;flex:none">
+      <div class="row" style="gap:4px"><input class="d" type="date" data-d="${r.id}" value="${r.due_date||""}">${r.due_date?`<button class="clr" data-cd="${r.id}" title="Togli il giorno" aria-label="Togli il giorno">✕</button>`:`<span style="width:30px"></span>`}</div>
+      <div class="row" style="gap:4px"><input class="d" type="time" data-tm="${r.id}" value="${tm5(r.due_time)}" ${r.due_date?"":"disabled"} title="Ora (facoltativa)">${r.due_time?`<button class="clr" data-ct="${r.id}" title="Togli l'ora" aria-label="Togli l'ora">✕</button>`:`<span style="width:30px"></span>`}</div></div></div>`).join("")}
     <div class="row mt"><input id="newr" placeholder="Nuovo promemoria…"><button class="btn" id="addr">Aggiungi</button></div>`;
   document.querySelectorAll("#tab input[type=checkbox]").forEach(c=>c.onchange=async()=>{ const r=cur.reminders.find(x=>x.id===c.dataset.r); r.done=c.checked; await db.setReminder(cur.id,r.id,{done:r.done}); renderLead(); });
-  document.querySelectorAll("#tab input.d").forEach(c=>c.onchange=async()=>{ const r=cur.reminders.find(x=>x.id===c.dataset.d); r.due_date=c.value||null; await db.setReminder(cur.id,r.id,{due_date:r.due_date}); renderLead(); });
+  document.querySelectorAll("#tab input[data-d]").forEach(c=>c.onchange=async()=>{ const r=cur.reminders.find(x=>x.id===c.dataset.d); r.due_date=c.value||null; const patch={due_date:r.due_date}; if(!r.due_date&&r.due_time){ r.due_time=null; patch.due_time=null; } await saveReminder(r,patch); renderLead(); });
+  // ✕ giorno: toglie giorno e ora; se è il "Richiamare" della chiamata fissata, toglie anche quella
+  document.querySelectorAll("#tab [data-cd]").forEach(b=>b.onclick=async()=>{ const r=cur.reminders.find(x=>x.id===b.dataset.cd); r.due_date=null; r.due_time=null;
+    await db.setReminder(cur.id,r.id,{due_date:null,due_time:null}).catch(e=>toast("Errore: "+e.message));
+    if(isCallRem(r)&&cur.call_at) await upd({call_at:null},"Chiamata fissata tolta"); renderLead(); });
+  document.querySelectorAll("#tab [data-ct]").forEach(b=>b.onclick=async()=>{ const r=cur.reminders.find(x=>x.id===b.dataset.ct); r.due_time=null;
+    await db.setReminder(cur.id,r.id,{due_time:null}).catch(e=>toast("Errore: "+e.message)); renderLead(); });
+  document.querySelectorAll("#tab input[data-tm]").forEach(c=>c.onchange=async()=>{ const r=cur.reminders.find(x=>x.id===c.dataset.tm); r.due_time=c.value||null; await saveReminder(r,{due_time:r.due_time}); renderLead(); });
   $("#addr").onclick=async()=>{ const v=$("#newr").value.trim(); if(!v) return; const [r]=await db.addReminders(cur.id,[{text:v}]); cur.reminders.push(r); renderLead(); };
 }
 
