@@ -147,11 +147,13 @@ const LOCAL = /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
 const DEMO = !cfg.SUPABASE_URL || (LOCAL && new URLSearchParams(location.search).has("prova"));
 const sb = (!DEMO && window.supabase) ? window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY) : null;
 
-const LEAD_COLS = ["name","phone","email","city","status","category","age","who","need","utility","why","objections","interest","notes","appointment_at","event_id","presentation_id","confirmed","consent","consent_at","consent_text","source"];
+const LEAD_COLS = ["name","phone","email","city","status","category","age","who","need","utility","why","objections","interest","notes","appointment_at","event_id","presentation_id","confirmed","consent","consent_at","consent_text","source","channel","generated_by","call_at"];
 const pick = o => Object.fromEntries(LEAD_COLS.filter(k=>k in o).map(k=>[k,o[k]]));
-const BLANK = { name:"",phone:"",email:"",city:"",status:"nuovo",category:"",age:"",who:"",need:"",utility:"",why:"",objections:"",interest:"",notes:"",appointment_at:null,event_id:null,presentation_id:null,confirmed:false,consent:false,consent_at:null,consent_text:"",source:"manuale" };
+const BLANK = { name:"",phone:"",email:"",city:"",status:"nuovo",category:"",age:"",who:"",need:"",utility:"",why:"",objections:"",interest:"",notes:"",appointment_at:null,event_id:null,presentation_id:null,confirmed:false,consent:false,consent_at:null,consent_text:"",source:"manuale",channel:"",generated_by:"",call_at:null };
 let ME = DEMO ? "demo" : null;
 const CONSENT_TEXT = "Acconsento a essere ricontattato/a dallo staff di LEARNIS Mind (telefono, messaggio o email) per ricevere informazioni sul corso e sugli open day. I miei dati non saranno ceduti a terzi e posso chiederne la cancellazione in qualsiasi momento.";
+const CHANNELS = ["SSA","SOCIAL","TUTORING","EVENTI","PASCALV"];
+const chanChips = (cur,attr="data-ch") => `<div class="chips" style="flex-wrap:wrap">${CHANNELS.map(c=>`<button type="button" class="chip ${cur===c?"on":""}" ${attr}="${c}">${c}</button>`).join("")}</div>`;
 const addDays = n => { const d=new Date(); d.setDate(d.getDate()+n); return dayKey(d.toISOString()); };
 const eventStats = leads => ({ tot:leads.length, risposto:leads.filter(l=>["risposto","fissato","iscritto"].includes(l.status)).length, qr:leads.filter(l=>l.source==="qr").length, consenso:leads.filter(l=>l.consent).length, fissati:leads.filter(l=>["fissato","iscritto"].includes(l.status)).length, iscritti:leads.filter(l=>l.status==="iscritto").length });
 
@@ -294,7 +296,7 @@ function stopRec(){
 
 /* ---------- struttura ---------- */
 const app = $("#app");
-const state = { filter:"tutti", q:"", tab:"promemoria" };
+const state = { filter:"tutti", chan:"", q:"", tab:"promemoria", view:(()=>{ try{ return localStorage.getItem("lk_view")||"lista"; }catch{ return "lista"; } })() };
 let cur = null, pendingCount = 0, presList = [];
 
 function navBar(active){
@@ -316,6 +318,28 @@ window.addEventListener("hashchange", route);
 const stageIcon = s => (STAGES[s]||["","🌰"])[1];
 const header = (kicker,title,extra="") => `<header class="top"><div><div class="kicker">${kicker}</div><h1>${title}</h1></div><div class="row">${extra}</div></header>`;
 
+/* ---------- lead per giorno / per settimana ---------- */
+const mondayOf = iso => { const d=new Date(iso); d.setHours(0,0,0,0); d.setDate(d.getDate()-((d.getDay()+6)%7)); return dayKey(d.toISOString()); };
+const weekLabel = k => { const a=new Date(k+"T00:00"), b=new Date(a); b.setDate(b.getDate()+6);
+  const f=d=>d.toLocaleDateString("it-IT",{day:"numeric",month:"short"});
+  return `${f(a)} – ${f(b)}`; };
+const dayLabel = k => { const t=todayStr(), y=addDays(-1); const d=new Date(k+"T00:00").toLocaleDateString("it-IT",{weekday:"long",day:"numeric",month:"long"});
+  return k===t?"Oggi · "+d:k===y?"Ieri · "+d:d; };
+function chanSummary(arr){ const c={}; arr.forEach(l=>{ const k=l.channel||"senza fonte"; c[k]=(c[k]||0)+1; });
+  return Object.entries(c).sort((a,b)=>b[1]-a[1]).map(([k,n])=>`${esc(k)} ${n}`).join(" · "); }
+// barre: ultimi 14 giorni o ultime 8 settimane, sui lead già filtrati
+function barsChart(leads, mode){
+  const keys=[], lab=[];
+  if(mode==="giorno"){ for(let i=13;i>=0;i--){ const k=addDays(-i); keys.push(k); lab.push(new Date(k+"T00:00").toLocaleDateString("it-IT",{day:"numeric"})); } }
+  else{ const m0=new Date(mondayOf(new Date().toISOString())+"T00:00"); for(let i=7;i>=0;i--){ const d=new Date(m0); d.setDate(d.getDate()-7*i); const k=dayKey(d.toISOString()); keys.push(k); lab.push(d.toLocaleDateString("it-IT",{day:"numeric",month:"numeric"})); } }
+  const key = mode==="giorno" ? l=>dayKey(l.created_at) : l=>mondayOf(l.created_at);
+  const n=keys.map(k=>leads.filter(l=>key(l)===k).length), max=Math.max(1,...n), tot=n.reduce((a,b)=>a+b,0);
+  const W=100/keys.length;
+  return `<div class="card"><div class="row"><div class="grow" style="font-weight:700">${mode==="giorno"?"Ultimi 14 giorni":"Ultime 8 settimane"}</div><div class="sub"><b style="color:var(--ink)">${tot}</b> lead · media ${(tot/keys.length).toFixed(1).replace(".",",")} ${mode==="giorno"?"al giorno":"a settimana"}</div></div>
+    <svg viewBox="0 0 100 46" preserveAspectRatio="none" style="width:100%;height:110px;margin-top:8px;display:block">${n.map((v,i)=>{ const h=v?Math.max(2,v/max*34):0.8; return `<rect x="${(i*W+W*0.15).toFixed(2)}" y="${(38-h).toFixed(2)}" width="${(W*0.7).toFixed(2)}" height="${h.toFixed(2)}" rx="0.8" fill="${i===keys.length-1?"var(--acc)":"color-mix(in srgb,var(--acc) 45%,transparent)"}"/>`; }).join("")}</svg>
+    <div style="display:flex;margin-top:-4px">${n.map((v,i)=>`<div style="flex:1;text-align:center;font-size:10px;line-height:1.2"><b>${v||""}</b><br><span class="sub" style="font-size:10px">${lab[i]}</span></div>`).join("")}</div></div>`;
+}
+
 /* ---------- home ---------- */
 async function viewHome(){
   await refreshPending();
@@ -325,17 +349,32 @@ async function viewHome(){
   const waitHtml = waiting.length?`<div class="card">📥 <b>${waiting.length} ${waiting.length===1?"lead salvato":"lead salvati"} sul dispositivo</b>, in attesa di rete: ${waiting.map(w=>esc(w.lead.name||w.lead.phone||"senza nome")).join(", ")}.<br><button class="link" id="retry">Riprova a inviare ora</button></div>`:"";
   const bindRetry=()=>{ if($("#retry")) $("#retry").onclick=async()=>{ if(!(await syncOutbox())) toast("Ancora senza rete: riprovo da solo appena torna"); }; };
   let leads; try{ leads = await db.list(); }catch(e){ $("#list").className=""; $("#list").innerHTML=waitHtml+(isNetErr(e)?`<p class="sub center mt">📡 Sei senza rete.<br>Puoi comunque premere <b>+</b> e aggiungere lead: restano sul dispositivo e partono appena torna la linea.</p>`:`<p>Errore: ${esc(e.message)}</p>`); bindRetry(); return; }
-  const shown = leads.filter(l=>(state.filter==="tutti"||l.status===state.filter) && (!state.q || (l.name+" "+l.phone+" "+l.city).toLowerCase().includes(state.q.toLowerCase())));
+  const shown = leads.filter(l=>(state.filter==="tutti"||l.status===state.filter) && (!state.chan||l.channel===state.chan) && (!state.q || (l.name+" "+l.phone+" "+l.city+" "+(l.generated_by||"")).toLowerCase().includes(state.q.toLowerCase())));
   const count = k => leads.filter(l=>l.status===k).length;
   $("#list").className=""; $("#list").innerHTML = waitHtml +
     (pendingCount?`<a class="banner" href="#/todo">🔔 ${pendingCount} ${pendingCount===1?"cosa da fare":"cose da fare"} oggi</a>`:"") +
-    `<input id="q" placeholder="Cerca nome, telefono o città" value="${esc(state.q)}">
+    `<input id="q" placeholder="Cerca nome, telefono, città o chi l'ha generato" value="${esc(state.q)}">
      <div class="chips mt"><button class="chip ${state.filter==="tutti"?"on":""}" data-f="tutti">Tutti ${leads.length}</button>${Object.entries(STAGES).map(([k,[t]])=>`<button class="chip ${state.filter===k?"on":""}" data-f="${k}">${t} ${count(k)}</button>`).join("")}</div>
-     <h2>${state.filter==="tutti"?"Tutti":STAGES[state.filter][0]} · ${shown.length}</h2>
-     ${shown.length?shown.map(l=>`<a class="item" href="#/lead/${l.id}"><span class="ic">${stageIcon(l.status)}</span><div class="grow"><div class="n">${esc(l.name||"Senza nome")}</div><div class="m">${esc(STAGES[l.status][0])}${l.category?" · "+CATS[l.category]:""}${l.city?" · "+esc(l.city):""}</div><div class="m" style="font-size:12px">Aggiunto il ${fmtD(l.created_at)}</div></div>${l.appointment_at?`<span class="date-pill">📅 ${fmtD(l.appointment_at)}</span>`:""}</a>`).join(""):`<p class="sub center mt">${leads.length?"Nessun lead con questo filtro.":"Ancora nessun lead. Premi + per aggiungere il primo."}</p>`}`;
+     <div class="chips"><span class="sub" style="font-weight:700;align-self:center;padding-right:2px">Fonte</span><button class="chip ${!state.chan?"on":""}" data-fc="">Tutte</button>${CHANNELS.map(c=>`<button class="chip ${state.chan===c?"on":""}" data-fc="${c}">${c} ${leads.filter(l=>l.channel===c).length}</button>`).join("")}</div>
+     <div class="seg">${[["lista","Elenco"],["giorno","Per giorno"],["settimana","Per settimana"]].map(([k,t])=>`<button data-v="${k}" class="${state.view===k?"on":""}">${t}</button>`).join("")}</div>
+     ${groupedHtml(shown, leads.length)}`;
   bindRetry();
   $("#q").oninput = e=>{ state.q=e.target.value; const pos=e.target.selectionStart; viewHome().then(()=>{const i=$("#q"); i.focus(); i.setSelectionRange(pos,pos);}); };
   document.querySelectorAll(".chip[data-f]").forEach(c=>c.onclick=()=>{ state.filter=c.dataset.f; viewHome(); });
+  document.querySelectorAll(".chip[data-fc]").forEach(c=>c.onclick=()=>{ state.chan=c.dataset.fc; viewHome(); });
+  document.querySelectorAll("[data-v]").forEach(b=>b.onclick=()=>{ state.view=b.dataset.v; try{ localStorage.setItem("lk_view",state.view); }catch{} viewHome(); });
+}
+function leadRow(l){ return `<a class="item" href="#/lead/${l.id}"><span class="ic">${stageIcon(l.status)}</span><div class="grow"><div class="n">${esc(l.name||"Senza nome")}</div><div class="m">${esc(STAGES[l.status][0])}${l.category?" · "+CATS[l.category]:""}${l.city?" · "+esc(l.city):""}</div><div class="m" style="font-size:12px">${l.channel?`<b>${esc(l.channel)}</b> · `:""}${l.generated_by?"da "+esc(l.generated_by)+" · ":""}Aggiunto il ${fmtD(l.created_at)}</div></div><div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end">${l.call_at?`<span class="date-pill">📞 ${fmtD(l.call_at)} ${hhmm(l.call_at)}</span>`:""}${l.appointment_at?`<span class="date-pill">📅 ${fmtD(l.appointment_at)}</span>`:""}</div></a>`; }
+function groupedHtml(shown, totAll){
+  const title = `${state.filter==="tutti"?"Tutti":STAGES[state.filter][0]}${state.chan?" · "+esc(state.chan):""}`;
+  if(!shown.length) return `<h2>${title} · 0</h2><p class="sub center mt">${totAll?"Nessun lead con questo filtro.":"Ancora nessun lead. Premi + per aggiungere il primo."}</p>`;
+  if(state.view==="lista") return `<h2>${title} · ${shown.length}</h2>${shown.map(leadRow).join("")}`;
+  const byDay = state.view==="giorno", key = byDay ? l=>dayKey(l.created_at) : l=>mondayOf(l.created_at);
+  const groups={}; shown.slice().sort((a,b)=>b.created_at.localeCompare(a.created_at)).forEach(l=>(groups[key(l)] ||= []).push(l));
+  const thisWeek=mondayOf(new Date().toISOString());
+  return barsChart(shown, byDay?"giorno":"settimana") + Object.entries(groups).sort((a,b)=>b[0].localeCompare(a[0])).map(([k,arr])=>
+    `<div class="row" style="margin:22px 0 4px;align-items:baseline"><div class="grow" style="font-weight:800;font-size:16px">${byDay?dayLabel(k):(k===thisWeek?"Questa settimana · ":"Settimana ")+weekLabel(k)}</div><span class="date-pill" style="background:var(--acc);color:var(--acc-ink)">${arr.length} ${arr.length===1?"lead":"lead"}</span></div>
+     <div class="sub" style="font-size:13px;margin-bottom:2px">${chanSummary(arr)}</div>${arr.map(leadRow).join("")}`).join("");
 }
 
 /* ---------- grafico a torta con percentuale ---------- */
@@ -390,10 +429,16 @@ async function viewTodo(){
   const appts=(await db.list().catch(()=>[])).filter(l=>l.appointment_at && l.status!=="perso").sort((a,b)=>a.appointment_at.localeCompare(b.appointment_at));
   pendingCount=rs.filter(r=>r.due_date<=t).length; $("nav.bar").outerHTML=navBar("todo");
   const sec=(title,arr)=>arr.length?`<div class="sub" style="font-weight:700;margin-top:12px">${title} · ${arr.length}</div>${arr.map(r=>`<div class="todo ${r.due_date<t?"late":""}"><input type="checkbox" data-l="${r.lead_id}" data-r="${r.id}"><a class="grow" href="#/lead/${r.lead_id}" style="text-decoration:none;color:inherit"><div style="font-weight:700">${esc(r.text)}</div><div class="t2 sub">${esc(r.lead_name)} · ${fmtD(r.due_date)}</div></a></div>`).join("")}`:"";
+  const calls=(await db.list().catch(()=>[])).filter(l=>l.call_at && l.status!=="perso").sort((a,b)=>a.call_at.localeCompare(b.call_at));
+  const now=new Date();
+  const callRow=l=>{ const late=new Date(l.call_at)<now; return `<a class="item" href="#/lead/${l.id}"><span class="ic" style="font-size:15px;font-weight:800;width:48px;${late?"color:var(--bad)":""}">${hhmm(l.call_at)}</span><div class="grow"><div class="n">${esc(l.name||"Senza nome")}</div><div class="m">📞 ${esc(l.phone||"nessun telefono")}${l.channel?" · "+esc(l.channel):""}${late?" · <b style='color:var(--bad)'>in ritardo</b>":""}</div></div></a>`; };
+  const callSec=(title,arr)=>arr.length?`<div class="sub" style="font-weight:700;margin-top:12px">${title} · ${arr.length}</div>${arr.map(callRow).join("")}`:"";
+  const callsLate=calls.filter(l=>dayKey(l.call_at)<t), callsT=calls.filter(l=>dayKey(l.call_at)===t), callsTm=calls.filter(l=>dayKey(l.call_at)===tm);
+  const callGroups={}; calls.filter(l=>dayKey(l.call_at)>tm).forEach(l=>(callGroups[dayKey(l.call_at)] ||= []).push(l));
   const apSec=(title,k)=>{ const arr=appts.filter(l=>dayKey(l.appointment_at)===k); return arr.length?`<div class="sub" style="font-weight:700;margin-top:12px">${title} · ${arr.length}</div>${arr.map(l=>`<a class="item" href="#/lead/${l.id}"><span class="ic">${l.confirmed?"✅":"📅"}</span><div class="grow"><div class="n">${esc(l.name||"Senza nome")}</div><div class="m">ore ${hhmm(l.appointment_at)} · ${l.confirmed?"ha confermato":"da confermare"}</div></div></a>`).join("")}`:""; };
-  const oggi = apSec("Vengono oggi",t)+sec("Scaduti",rs.filter(r=>r.due_date<t))+sec("Da fare oggi",rs.filter(r=>r.due_date===t));
-  const domani = apSec("Vengono domani",tm)+sec("Da fare domani",rs.filter(r=>r.due_date===tm));
-  const poi = sec("Prossimi giorni",rs.filter(r=>r.due_date>tm));
+  const oggi = callSec("📞 Chiamate saltate",callsLate)+callSec("📞 Chiamate di oggi",callsT)+apSec("Vengono oggi",t)+sec("Scaduti",rs.filter(r=>r.due_date<t))+sec("Da fare oggi",rs.filter(r=>r.due_date===t));
+  const domani = callSec("📞 Chiamate di domani",callsTm)+apSec("Vengono domani",tm)+sec("Da fare domani",rs.filter(r=>r.due_date===tm));
+  const poi = Object.values(callGroups).map(v=>callSec("📞 "+fmtDay(v[0].call_at),v)).join("")+sec("Prossimi giorni",rs.filter(r=>r.due_date>tm));
   $("#b").className=""; $("#b").innerHTML =
     `<h2>Oggi · ${fmtD(t)}</h2>${oggi||`<p class="sub">Niente in programma oggi. 🎉</p>`}
      <h2>Domani · ${fmtD(tm)}</h2>${domani||`<p class="sub">Niente in programma domani.</p>`}
@@ -453,6 +498,9 @@ function openAdd(eventId=null, eventName="", eventCode=""){
     ${eventId?`<p class="sub">👥 Per l'evento <b>${esc(eventName)}</b>: lo vedrà tutta la squadra.</p><button class="btn sec block" id="useqr" type="button">📱 Lo compila dal suo telefono? Mostra il QR</button>`:""}
     <label>Nome e cognome</label><input id="n" autocomplete="off" autofocus>
     <label>Telefono</label><input id="p" type="tel" inputmode="tel">
+    <label>Fonte</label>${chanChips(eventId?"EVENTI":"")}
+    <label>Chi l'ha generato</label><input id="gb" placeholder="Es. Marco, Giulia, nome del tutor…" autocomplete="off">
+    <label>📞 Chiamata fissata <span class="sub" style="font-weight:400">(facoltativa)</span></label><input id="ca" type="datetime-local">
     <label class="row" style="font-weight:500;cursor:pointer"><input type="checkbox" id="cs" style="width:22px;height:22px;flex:none;padding:0"><span>Mi ha dato il consenso a essere ricontattato/a</span></label>
     <label>Screenshot della chat</label><input id="img" type="file" accept="image/*" multiple><div class="thumbs" id="th"></div>
     <label>Nota vocale su di lui/lei</label>
@@ -462,6 +510,8 @@ function openAdd(eventId=null, eventName="", eventCode=""){
   document.body.appendChild(bg);
   const close=()=>{ if(recorder&&recorder.state==="recording"){ recorder.stop(); recStream.getTracks().forEach(t=>t.stop()); } bg.remove(); };
   bg.querySelector("#x").onclick=close; bg.onclick=e=>{ if(e.target===bg) close(); };
+  let chan = eventId ? "EVENTI" : "";
+  bg.querySelectorAll("[data-ch]").forEach(b=>b.onclick=()=>{ chan = chan===b.dataset.ch ? "" : b.dataset.ch; bg.querySelectorAll("[data-ch]").forEach(x=>x.classList.toggle("on",x.dataset.ch===chan)); });
   if(bg.querySelector("#useqr")) bg.querySelector("#useqr").onclick=()=>{ close(); showQr(eventCode,eventName); };
   const th=bg.querySelector("#th");
   bg.querySelector("#img").onchange=async e=>{ for(const f of e.target.files){ try{ const b=await resizeImage(f); pend.files.push({kind:"screenshot",blob:b}); const im=document.createElement("img"); im.src=URL.createObjectURL(b); th.appendChild(im);}catch{ toast("Immagine non valida"); } } e.target.value=""; };
@@ -484,7 +534,8 @@ function openAdd(eventId=null, eventName="", eventCode=""){
       if(dup && !confirm(`Questo numero è già salvato come "${dup.name||"senza nome"}" (aggiunto il ${fmtD(dup.created_at)}).\n\nOK = salva comunque un nuovo lead\nAnnulla = apri quello esistente`)){ bg.remove(); location.hash="#/lead/"+dup.id; return; }
     }catch{} }
     const p={ id:uid(), me:ME, created:new Date().toISOString(), files:pend.files,
-      lead:{name,phone,notes:bg.querySelector("#nt").value.trim(),status:"nuovo",event_id:eventId,
+      lead:{name,phone,notes:bg.querySelector("#nt").value.trim(),status:"nuovo",event_id:eventId,channel:chan,generated_by:bg.querySelector("#gb").value.trim(),
+        call_at:bg.querySelector("#ca").value?new Date(bg.querySelector("#ca").value).toISOString():null,
         ...(bg.querySelector("#cs").checked?{consent:true,consent_at:new Date().toISOString(),consent_text:CONSENT_TEXT}:{})} };
     try{
       await createLead(p);
@@ -512,27 +563,45 @@ function renderLead(){
   const bar = `<nav class="bar act"><div><a href="tel:${telDigits(l.phone)}" class="${l.phone?"":"off"}"><span class="i">📞</span>Chiama</a><a target="_blank" rel="noopener" href="https://wa.me/${waNumber(l.phone)}" class="${l.phone?"":"off"}"><span class="i">💬</span>WhatsApp</a><a href="mailto:${esc(l.email)}" class="${l.email?"":"off"}"><span class="i">✉️</span>Email</a></div></nav>`;
   const pr = presList.find(x=>x.id===l.presentation_id);
   const backTo = l.event_id && l.user_id!==ME ? "#/evento/"+l.event_id : "#/";
-  app.innerHTML=`<header class="top"><div class="row"><a class="back" href="${backTo}">‹</a><div><div class="kicker">${esc(["Aggiunto il "+fmtD(l.created_at),l.city,l.category&&CATS[l.category]].filter(Boolean).join(" · "))}</div><h1>${esc(l.name||"Senza nome")}</h1></div></div></header>
+  app.innerHTML=`<header class="top"><div class="row"><a class="back" href="${backTo}">‹</a><div><div class="kicker">${esc([l.channel,l.generated_by&&"da "+l.generated_by,"Aggiunto il "+fmtD(l.created_at),l.city].filter(Boolean).join(" · "))}</div><h1>${esc(l.name||"Senza nome")}</h1></div></div></header>
     ${l.event_id?`<a class="sub" href="#/evento/${l.event_id}" style="display:block;text-decoration:none">👥 Evento: <b>${esc(l.event_name)}</b>${l.by_name?" · preso da "+esc(l.by_name):""}</a>`:""}
     <div class="stages">${Object.entries(STAGES).slice(0,4).map(([k,[t,e]])=>`<button class="stage ${l.status===k?"on":""}" data-s="${k}"><span class="e">${e}</span>${t}</button>`).join("")}</div>
     <div class="appt" id="pres" style="cursor:pointer"><span style="font-size:26px">📅</span><div class="grow"><div class="sub">Presentazione / appuntamento</div><div style="font-weight:700">${l.appointment_at?esc((pr?pr.title+" · ":"")+fmtDT(l.appointment_at)+(pr&&pr.place?" · "+pr.place:"")):"Nessuna: tocca per scegliere"}</div></div><span>›</span></div>
     ${l.appointment_at?`<div class="chips" style="margin-top:-4px"><button class="chip ${l.confirmed?"on":""}" id="conf">${l.confirmed?"✅ Ha confermato":"Ha confermato?"}</button><a class="chip" target="_blank" rel="noopener" href="${googleCalUrl(l)}" style="text-decoration:none">＋ Google Calendar</a><button class="chip" id="ics">＋ Calendario iPhone/Mac</button></div>`:""}
+    <div class="appt" id="callbox" style="cursor:pointer"><span style="font-size:26px">📞</span><div class="grow"><div class="sub">Chiamata fissata</div><div style="font-weight:700${l.call_at&&new Date(l.call_at)<new Date()?";color:var(--bad)":""}">${l.call_at?esc(fmtDT(l.call_at))+(new Date(l.call_at)<new Date()?" · da fare!":""):"Nessuna: tocca per fissarla"}</div></div><span>›</span></div>
     <div class="sub" style="font-weight:700;margin-top:12px">Esito della chiamata</div>
     <div class="chips" style="flex-wrap:wrap"><button class="chip" data-call="no">📵 Non ha risposto</button><button class="chip" data-call="later">🔁 Da richiamare</button><button class="chip" data-call="fix">📅 Fissato</button><button class="chip" data-call="lost">🚫 Non interessato</button></div>
     <div class="seg">${[["promemoria","Promemoria"],["appunti","Appunti"],["obiezioni","Obiezioni"],["info","Info"]].map(([k,t])=>`<button data-t="${k}" class="${tab===k?"on":""}">${t}</button>`).join("")}</div>
     <div id="tab"></div>${bar}`;
   document.querySelectorAll(".stage").forEach(b=>b.onclick=async()=>{ await upd({status:b.dataset.s},"Fase: "+STAGES[b.dataset.s][0]); renderLead(); });
   $("#pres").onclick=openPresPicker;
+  $("#callbox").onclick=openCallAtPicker;
   if($("#conf")) $("#conf").onclick=async()=>{ await upd({confirmed:!l.confirmed}, l.confirmed?"Conferma della presenza tolta":"Ha confermato la presenza"); renderLead(); };
   document.querySelectorAll("[data-call]").forEach(b=>b.onclick=async()=>{ const k=b.dataset.call;
-    if(k==="no"){ await upd({},"Chiamata: non ha risposto"); await setCallback(addDays(1)); toast("Segnato. Promemoria: richiamare domani"); renderLead(); }
+    if(k==="no"){ await upd({call_at:null},"Chiamata: non ha risposto"); await setCallback(addDays(1)); toast("Segnato. Promemoria: richiamare domani"); renderLead(); }
     if(k==="later") openCallbackPicker();
-    if(k==="fix") openPresPicker();
-    if(k==="lost"){ if(confirm("Segnare come non interessato?")){ await upd({status:"perso"},"Chiamata: non interessato"); renderLead(); } }
+    if(k==="fix"){ if(cur.call_at) await upd({call_at:null}); openPresPicker(); }
+    if(k==="lost"){ if(confirm("Segnare come non interessato?")){ await upd({status:"perso",call_at:null},"Chiamata: non interessato"); renderLead(); } }
   });
   document.querySelectorAll(".seg button").forEach(b=>b.onclick=()=>{ state.tab=b.dataset.t; renderLead(); });
   if($("#ics")) $("#ics").onclick=()=>downloadIcs(l);
   ({promemoria:tabReminders,appunti:tabNotes,obiezioni:tabObjections,info:tabInfo})[tab]();
+}
+// chiamata fissata: giorno e ora in cui chiamare la persona
+function openCallAtPicker(){
+  const at=(d,h)=>{ const x=new Date(); x.setDate(x.getDate()+d); x.setHours(h,0,0,0); return x; };
+  const quick=[["Oggi 18:00",at(0,18)],["Domani 10:00",at(1,10)],["Domani 18:00",at(1,18)],["Tra 2 giorni 18:00",at(2,18)]].filter(([,d])=>d>new Date());
+  const bg=document.createElement("div"); bg.className="sheet-bg";
+  bg.innerHTML=`<div class="sheet"><div class="row"><h1 class="grow">Quando lo chiami?</h1><button class="chip" id="x">Chiudi</button></div>
+    <div class="chips mt" style="flex-wrap:wrap">${quick.map(([t,d])=>`<button class="chip" data-at="${d.toISOString()}">${t}</button>`).join("")}</div>
+    <label>Oppure scegli giorno e ora</label><div class="row"><input id="cat" type="datetime-local" value="${toLocalInput(cur.call_at)}"><button class="btn" id="ok">OK</button></div>
+    ${cur.call_at?`<button class="link mt" id="done">✔ Chiamata fatta</button><button class="link bad" id="rm">Togli la chiamata fissata</button>`:""}</div>`;
+  document.body.appendChild(bg); bg.querySelector("#x").onclick=()=>bg.remove();
+  const go=async iso=>{ bg.remove(); await upd({call_at:iso},"Chiamata fissata: "+fmtDT(iso)); toast("Chiamata fissata: "+fmtDT(iso)); renderLead(); };
+  bg.querySelectorAll("[data-at]").forEach(b=>b.onclick=()=>go(b.dataset.at));
+  bg.querySelector("#ok").onclick=()=>{ const v=bg.querySelector("#cat").value; if(!v){ toast("Scegli giorno e ora"); return; } go(new Date(v).toISOString()); };
+  if(bg.querySelector("#done")) bg.querySelector("#done").onclick=async()=>{ bg.remove(); await upd({call_at:null},"Chiamata fatta"); toast("Segnata. Ora scegli l'esito qui sotto"); renderLead(); };
+  if(bg.querySelector("#rm")) bg.querySelector("#rm").onclick=async()=>{ bg.remove(); await upd({call_at:null},"Chiamata fissata tolta"); renderLead(); };
 }
 // promemoria "Richiamare": riusa quello aperto, altrimenti lo crea
 async function setCallback(due){
@@ -544,9 +613,11 @@ function openCallbackPicker(){
   const bg=document.createElement("div"); bg.className="sheet-bg";
   bg.innerHTML=`<div class="sheet"><div class="row"><h1 class="grow">Quando richiami?</h1><button class="chip" id="x">Chiudi</button></div>
     <div class="chips mt" style="flex-wrap:wrap"><button class="chip" data-d="${addDays(1)}">Domani</button><button class="chip" data-d="${addDays(3)}">Tra 3 giorni</button><button class="chip" data-d="${addDays(7)}">Tra una settimana</button></div>
+    <label>A che ora?</label><input id="ch" type="time" value="18:00">
     <label>Oppure scegli il giorno</label><div class="row"><input id="cd" type="date" min="${todayStr()}"><button class="btn" id="ok">OK</button></div></div>`;
   document.body.appendChild(bg); bg.querySelector("#x").onclick=()=>bg.remove();
-  const go=async due=>{ if(!due) return; bg.remove(); await upd(cur.status==="nuovo"?{status:"risposto"}:{}, "Chiamata: da richiamare il "+fmtD(due)); await setCallback(due); toast("Promemoria: richiamare il "+fmtD(due)); renderLead(); };
+  const go=async due=>{ if(!due) return; bg.remove(); const h=bg.querySelector("#ch")?.value||"18:00"; const iso=new Date(due+"T"+h).toISOString();
+    await upd({...(cur.status==="nuovo"?{status:"risposto"}:{}),call_at:iso}, "Chiamata: da richiamare il "+fmtDT(iso)); await setCallback(due); toast("Chiamata fissata: "+fmtDT(iso)); renderLead(); };
   bg.querySelectorAll("[data-d]").forEach(b=>b.onclick=()=>go(b.dataset.d)); bg.querySelector("#ok").onclick=()=>go(bg.querySelector("#cd").value);
 }
 function openPresPicker(){
@@ -617,7 +688,8 @@ function tabObjections(){
 
 function tabInfo(){
   const l=cur;
-  $("#tab").innerHTML=`${field("Nome e cognome","name","input")}${field("Telefono","phone","input")}${field("Email","email","input")}${field("Città","city","input")}
+  $("#tab").innerHTML=`<label style="margin-top:4px">Fonte</label>${chanChips(l.channel)}${field("Chi l'ha generato","generated_by","input","Es. Marco, Giulia, nome del tutor…")}
+    ${field("Nome e cognome","name","input")}${field("Telefono","phone","input")}${field("Email","email","input")}${field("Città","city","input")}
     <div class="kv mt"><span>Aggiunto</span><span>${fmtDT(l.created_at)}</span></div>
     <div class="kv"><span>Arrivato da</span><span>${({qr:"QR all'evento",cattura:"Cattura"})[l.source]||"Inserito a mano"}</span></div>
     <div class="kv"><span>Consenso privacy</span><span>${l.consent?"sì · "+fmtDT(l.consent_at):"non registrato"}</span></div>
@@ -625,7 +697,8 @@ function tabInfo(){
     <button class="link mt" id="np">⊖ Segna come non interessato</button><button class="link bad" id="del">🗑 Elimina il lead</button>
     <h2>Storico</h2>${l.events.length?l.events.map(e=>`<div class="ev">${esc(e.text)}<time>${fmtDT(e.created_at)}</time></div>`).join(""):`<span class="sub">Nessun evento</span>`}`;
   bindFields();
-  document.querySelectorAll("#tab [data-k]").forEach(el=>{ const old=el.onchange; el.onchange=async()=>{ await old(); if(["name","phone","email","city"].includes(el.dataset.k)) renderLead(); }; });
+  document.querySelectorAll("#tab [data-k]").forEach(el=>{ const old=el.onchange; el.onchange=async()=>{ await old(); if(["name","phone","email","city","generated_by"].includes(el.dataset.k)) renderLead(); }; });
+  document.querySelectorAll("#tab [data-ch]").forEach(b=>b.onclick=async()=>{ const v=l.channel===b.dataset.ch?"":b.dataset.ch; await upd({channel:v}, v?"Fonte: "+v:"Fonte tolta"); renderLead(); });
   if($("#cons")) $("#cons").onclick=async()=>{ await upd({consent:true,consent_at:new Date().toISOString(),consent_text:CONSENT_TEXT},"Consenso privacy registrato"); renderLead(); };
   $("#np").onclick=async()=>{ await upd({status:"perso"},"Fase: Non interessato"); renderLead(); };
   $("#del").onclick=async()=>{ if(confirm("Eliminare definitivamente questo lead?")){ await db.remove(l.id); location.hash="#/"; } };
