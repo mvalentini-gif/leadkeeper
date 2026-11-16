@@ -68,7 +68,9 @@ const isNetErr = e => !navigator.onLine || /failed to fetch|networkerror|load fa
 
 /* ---------- dati ---------- */
 const cfg = window.APP_CONFIG || {};
-const DEMO = !cfg.SUPABASE_URL || new URLSearchParams(location.search).has("prova");
+// La modalità prova esiste solo sul computer di sviluppo (localhost), mai sull'app pubblicata.
+const LOCAL = /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
+const DEMO = !cfg.SUPABASE_URL || (LOCAL && new URLSearchParams(location.search).has("prova"));
 const sb = (!DEMO && window.supabase) ? window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY) : null;
 let ME = DEMO ? "demo" : null;
 
@@ -212,7 +214,7 @@ function viewLogin(){
   app.innerHTML=`<div class="center" style="padding-top:70px"><h1 style="font-size:40px">Cattura</h1><p class="sub">Usa lo stesso account di LeadKeeper</p></div>
     <div class="card mt"><label style="margin-top:0">Email</label><input id="e" type="email" autocomplete="email"><label>Password</label><input id="pw" type="password" autocomplete="current-password">
     <button class="btn block mt" id="in">Accedi</button><p class="sub center" id="msg"></p></div>
-    <p class="center sub">Password dimenticata? Recuperala da <a href="../">LeadKeeper</a>.<br><a href="?prova">Prova con dati finti</a></p>`;
+    <p class="center sub">Password dimenticata? Recuperala da <a href="../">LeadKeeper</a>.</p>`;
   $("#in").onclick=async()=>{ const {error}=await sb.auth.signInWithPassword({email:$("#e").value.trim(),password:$("#pw").value}); if(error){ $("#msg").textContent=error.message; return; } boot(); };
 }
 async function boot(){

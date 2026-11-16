@@ -142,7 +142,9 @@ function localSuggest(message, playbook){
 
 /* ---------- livello dati ---------- */
 const cfg = window.APP_CONFIG || {};
-const DEMO = !cfg.SUPABASE_URL || new URLSearchParams(location.search).has("prova");
+// La modalità prova esiste solo sul computer di sviluppo (localhost), mai sull'app pubblicata.
+const LOCAL = /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
+const DEMO = !cfg.SUPABASE_URL || (LOCAL && new URLSearchParams(location.search).has("prova"));
 const sb = (!DEMO && window.supabase) ? window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY) : null;
 
 const LEAD_COLS = ["name","phone","email","city","status","category","age","who","need","utility","why","objections","interest","notes","appointment_at","event_id","presentation_id","confirmed","consent","consent_at","consent_text","source"];
@@ -382,7 +384,8 @@ async function openNewPresentation(done){
 
 /* ---------- da fare: la mattina guardi Oggi, la sera guardi Domani ---------- */
 async function viewTodo(){
-  app.innerHTML = header("La mattina guarda Oggi · la sera guarda Domani","Da fare") + `<div id="b" class="sub">Carico…</div>` + navBar("todo");
+  app.innerHTML = header("La mattina guarda Oggi · la sera guarda Domani","Da fare") + `<div id="push"></div><div id="b" class="sub">Carico…</div>` + navBar("todo");
+  renderPushCard();
   const rs=(await db.allReminders()).sort((a,b)=>a.due_date.localeCompare(b.due_date)); const t=todayStr(), tm=addDays(1);
   const appts=(await db.list().catch(()=>[])).filter(l=>l.appointment_at && l.status!=="perso").sort((a,b)=>a.appointment_at.localeCompare(b.appointment_at));
   pendingCount=rs.filter(r=>r.due_date<=t).length; $("nav.bar").outerHTML=navBar("todo");
@@ -396,6 +399,50 @@ async function viewTodo(){
      <h2>Domani · ${fmtD(tm)}</h2>${domani||`<p class="sub">Niente in programma domani.</p>`}
      ${poi?`<h2>Più avanti</h2>${poi}`:""}`;
   document.querySelectorAll(".todo input").forEach(c=>c.onchange=async()=>{ await db.setReminder(c.dataset.l,c.dataset.r,{done:true}); viewTodo(); });
+}
+
+/* ---------- avvisi sul telefono (mattina 8:00, sera 20:00) ---------- */
+const b64uBytes = s => { s=s.replace(/-/g,"+").replace(/_/g,"/"); const b=atob(s+"=".repeat((4-s.length%4)%4)); return Uint8Array.from(b,c=>c.charCodeAt(0)); };
+const swReady = () => Promise.race([navigator.serviceWorker.ready, new Promise((_,rej)=>setTimeout(()=>rej(new Error("L'app non è ancora pronta: chiudila e riaprila")),6000))]);
+async function pushState(){
+  if(DEMO) return "demo";
+  const ios=/iphone|ipad|ipod/i.test(navigator.userAgent);
+  if(!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) return (ios && !navigator.standalone) ? "ios-install" : "unsupported";
+  if(Notification.permission==="denied") return "denied";
+  try{ return (await (await swReady()).pushManager.getSubscription()) ? "on" : "off"; }catch{ return "off"; }
+}
+async function renderPushCard(){
+  const box=$("#push"); if(!box) return; const st=await pushState(); if(!$("#push")) return;
+  const html={
+    demo:"",
+    unsupported:`<div class="card sub">🔔 Questo browser non supporta gli avvisi. Sul telefono apri l'app dall'icona sulla schermata Home.</div>`,
+    "ios-install":`<div class="card">🔔 <b>Vuoi un avviso la mattina e la sera?</b><br><span class="sub">Su iPhone gli avvisi funzionano solo dall'app installata: in Safari tocca <b>Condividi → Aggiungi alla schermata Home</b>, poi apri LeadKeeper da quell'icona e torna qui.</span></div>`,
+    denied:`<div class="card">🔕 <b>Avvisi bloccati.</b><br><span class="sub">Riattivali da Impostazioni → Notifiche → LeadKeeper, poi torna qui.</span></div>`,
+    off:`<div class="card">🔔 <b>Vuoi un avviso la mattina e la sera?</b><br><span class="sub">Alle 8 il riepilogo di oggi, alle 20 quello di domani da mettere in agenda.</span><button class="btn block mt" id="pon">Attiva gli avvisi</button></div>`,
+    on:`<div class="card">🔔 <b>Avvisi attivi</b> · mattina 8:00, sera 20:00<div class="row mt"><button class="btn sec grow" id="ptest">Invia una prova</button><button class="chip" id="poff">Disattiva</button></div></div>`
+  }[st];
+  box.innerHTML=html;
+  if($("#pon")) $("#pon").onclick=async()=>{ const b=$("#pon"); b.disabled=true; b.textContent="Attivo…";
+    try{ await enablePush(); toast("Avvisi attivati"); }catch(e){ toast(e.message||"Non sono riuscito ad attivarli"); } renderPushCard(); };
+  if($("#ptest")) $("#ptest").onclick=async()=>{ const b=$("#ptest"); b.disabled=true; b.textContent="Invio…";
+    try{ const {data,error}=await sb.functions.invoke("notify",{body:{action:"preview",kind:new Date().getHours()>=14?"evening":"morning"}});
+      if(error) throw error; if(data?.error) throw new Error(data.error);
+      toast(data.sent ? "Inviata: guarda le notifiche del telefono" : "Non consegnata"+(data.results?.[0]?` (codice ${data.results[0].status})`:": nessun telefono iscritto")); }
+    catch(e){ toast("Errore: "+(e.message||e)); } b.disabled=false; b.textContent="Invia una prova"; };
+  if($("#poff")) $("#poff").onclick=async()=>{ try{ const sub=await (await swReady()).pushManager.getSubscription();
+      if(sub){ await sb.from("push_subscriptions").delete().eq("endpoint",sub.endpoint); await sub.unsubscribe(); } toast("Avvisi disattivati"); }catch(e){ toast("Errore: "+e.message); } renderPushCard(); };
+}
+async function enablePush(){
+  const perm=await Notification.requestPermission();
+  if(perm!=="granted") throw new Error("Permesso negato: senza permesso non posso avvisarti");
+  const {data,error}=await sb.functions.invoke("notify",{body:{action:"pubkey"}});
+  if(error||!data?.publicKey) throw new Error("La funzione degli avvisi non risponde: è stata creata su Supabase?");
+  const reg=await swReady();
+  let sub=await reg.pushManager.getSubscription();
+  if(!sub) sub=await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:b64uBytes(data.publicKey)});
+  const j=sub.toJSON();
+  const {error:e2}=await sb.from("push_subscriptions").upsert({endpoint:j.endpoint,p256dh:j.keys.p256dh,auth:j.keys.auth},{onConflict:"endpoint"});
+  if(e2){ await sub.unsubscribe().catch(()=>{}); throw new Error(/push_subscriptions/.test(e2.message)?"Manca lo script migration_05_avvisi.sql su Supabase":e2.message); }
 }
 
 /* ---------- aggiunta veloce ---------- */
@@ -704,7 +751,7 @@ function viewLogin(){
   app.innerHTML=`<div class="center" style="padding-top:70px"><h1 style="font-size:40px">LeadKeeper</h1><p class="sub">LEARNIS Mind · Non perdere più nessun lead</p></div>
     <div class="card mt"><label style="margin-top:0">Email</label><input id="e" type="email" autocomplete="email"><label>Password</label><input id="pw" type="password" autocomplete="current-password">
     <button class="btn block mt" id="in">Accedi</button><button class="btn sec block mt" id="up">Crea account</button><p class="sub center" id="msg"></p><p class="center" style="margin:0"><button class="link" id="forgot" style="display:inline-flex">Password dimenticata?</button></p></div>
-    <p class="center"><a href="?prova" class="sub">Prova l'app con dati finti</a></p>`;
+`;
   const go=async fn=>{ const {error,data}=await fn({email:$("#e").value.trim(),password:$("#pw").value}); if(error){ $("#msg").textContent=error.message; return; } if(!data.session){ $("#msg").textContent="Controlla la mail per confermare l'account, poi accedi."; return; } boot(); };
   $("#forgot").onclick=async()=>{ const email=$("#e").value.trim(); if(!email){ $("#msg").textContent="Scrivi prima la tua email qui sopra, poi premi di nuovo."; return; }
     const {error}=await sb.auth.resetPasswordForEmail(email,{redirectTo:location.origin+location.pathname});
