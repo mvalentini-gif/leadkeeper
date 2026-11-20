@@ -496,14 +496,67 @@ async function enablePush(){
   if(e2){ await sub.unsubscribe().catch(()=>{}); throw new Error(/push_subscriptions/.test(e2.message)?"Manca lo script migration_05_avvisi.sql su Supabase":e2.message); }
 }
 
+/* ---------- riconosce nome, telefono ed email in un messaggio incollato (WhatsApp, email, note) ---------- */
+function parseLeadText(raw){
+  const text = String(raw||"").replace(/\r/g,"").replace(/[‎‏‪-‮⁦-⁩ ]/g," ");
+  // righe "copiate" da WhatsApp: "[16/11/26, 10:31] Mario: testo" -> tolgo data e mittente
+  let sender="";
+  const lines = text.split("\n").map(l=>l.replace(/^\s*\[?\d{1,2}[\/.]\d{1,2}[\/.]\d{2,4},?\s+\d{1,2}[:.]\d{2}(?:[:.]\d{2})?\]?\s*(?:-\s*)?(?:([^:\n]{1,40}):\s)?/,(m,who)=>{ if(who&&!sender&&!/\d/.test(who)) sender=who.trim(); return ""; })
+    .replace(/^\s*(?:\d{1,2}[).]|[-•*·])\s+/,"").trim());
+  const phoneRe = /(?:\+|00)?\d[\d \t.\-\/()]{5,}\d/g;
+  const emailRe = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/;
+  const labelRe = /^(?:nome(?:\s*e\s*cognome)?|cognome|name|lead|nuovo\s+lead|contatto|cliente|ragazz[oa]|studente|persona|referente|tel(?:efono)?|cell(?:ulare)?|num(?:ero)?|n\.|whatsapp|wa|recapito|mail|e-?mail|citt[aà]|da|chi)\b\.?\s*[:\-–=]\s*/i;   // l'etichetta vale solo se seguita da ":" "-" "="
+  const clean = s => s.replace(emailRe,"").replace(/[*_~`"“”«»()\[\]]/g,"").replace(/\s+/g," ").trim();
+  // un nome: 1-5 parole fatte di lettere, niente cifre, non una parola "di servizio"
+  const stop = /^(?:ciao|buongiorno|chiamalo|chiamala|chiamali|contattalo|contattala|sentilo|sentila|scrivigli|scrivile|appuntamento|tel|buonasera|salve|grazie|ok|si|sì|no|nuovo|lead|contatto|numero|telefono|tel|cell|interessat[oaie]|vorrebbe|chiamare|richiamare|per|il|la|lo|di|da|ecco|allora|questo|questa|oggi|domani)$/i;
+  const looksName = s => { s=clean(s).replace(labelRe,"").replace(/^nome\s+(?=\S+\s+\S)/i,"").replace(/[,;:.\-–|/]+$/,"").trim();
+    if(!s || /\d|@|https?:/i.test(s) || s.length>45) return "";
+    const w=s.split(" ").filter(Boolean); if(w.length<1||w.length>5) return "";
+    if(!w.every(x=>/^[A-Za-zÀ-ÖØ-öø-ÿ'’.\-]+$/.test(x))) return "";
+    if(w.length===1 && (stop.test(w[0]) || w[0].length<3)) return "";
+    if(w.every(x=>stop.test(x))) return "";
+    // Rimetto le maiuscole se è tutto minuscolo o tutto maiuscolo
+    if(s===s.toLowerCase()||s===s.toUpperCase()) s=w.map(x=>x.charAt(0).toUpperCase()+x.slice(1).toLowerCase()).join(" ");
+    return s; };
+  const people=[], seen=new Set();
+  lines.forEach((line,i)=>{
+    const found=[...line.matchAll(phoneRe)].map(m=>m[0]).filter(m=>{ const d=m.replace(/\D/g,"").replace(/^(?:00)?39(?=3\d{8,9}$)/,""); return d.length>=8 && d.length<=13 && !/^\d{1,2}[\/.]\d{1,2}[\/.]\d{2,4}$/.test(m.trim()); });
+    found.forEach(ph=>{
+      const digits=ph.replace(/\D/g,""); const key=digits.slice(-9); if(seen.has(key)) return; seen.add(key);
+      // nome: prima sulla stessa riga (prima o dopo il numero), poi nelle righe sopra, poi in quella sotto
+      let name=""; const parts=line.split(ph);
+      const tail=(parts[0].match(/((?:[A-ZÀ-Ö][a-zà-öø-ÿ'’]+\s+){1,3}[A-ZÀ-Ö][a-zà-öø-ÿ'’]+)\s*[,:\-–]?\s*$/)||[])[1]||"";
+      name = looksName(parts[0]) || looksName(tail) || looksName((parts[0].split(/[,;|–\-]\s/).pop())||"") || looksName((parts[1]||"").split(/[,;|–]\s|\s-\s/)[0]);
+      for(let k=i-1; !name && k>=Math.max(0,i-3); k--){ if(phoneRe.test(lines[k])){ phoneRe.lastIndex=0; break; } phoneRe.lastIndex=0; name=looksName(lines[k]); }
+      if(!name && lines[i+1] && !lines[i+1].match(phoneRe)) name=looksName(lines[i+1]);
+      phoneRe.lastIndex=0;
+      const near=[lines[i-1],line,lines[i+1]].filter(Boolean).join(" "), em=near.match(emailRe);
+      people.push({ name, phone: ph.trim().replace(/\s+/g," "), email: em?em[0]:"" });
+    });
+  });
+  // nessun numero, ma c'è un nome evidente (es. "Nome: Mario Rossi")
+  if(!people.length){ const l=lines.find(x=>/^nome/i.test(x)) || lines[0] || ""; const n=looksName(l); const em=text.match(emailRe); if(n||em) people.push({name:n,phone:"",email:em?em[0]:""}); }
+  const low=text.toLowerCase();
+  const channel = /tik\s*tok|instagram|\binsta\b|facebook|\bsocial\b|\breel\b|\bdm\b|direct/.test(low)?"SOCIAL"
+    : /pascal/.test(low)?"PASCALV" : /tutoring|tutor\b/.test(low)?"TUTORING" : /\bssa\b/.test(low)?"SSA"
+    : /open\s*day|evento|fiera|\bqr\b|volantin/.test(low)?"EVENTI" : "";
+  return { people, note: text.trim(), channel, sender };
+}
+
 /* ---------- aggiunta veloce ---------- */
 function openAdd(eventId=null, eventName="", eventCode=""){
   const pend={ files:[] };
   const bg=document.createElement("div"); bg.className="sheet-bg";
   bg.innerHTML=`<div class="sheet"><div class="row"><h1 class="grow">Nuovo lead</h1><button class="chip" id="x">Chiudi</button></div>
     ${eventId?`<p class="sub">👥 Per l'evento <b>${esc(eventName)}</b>: lo vedrà tutta la squadra.</p><button class="btn sec block" id="useqr" type="button">📱 Lo compila dal suo telefono? Mostra il QR</button>`:""}
-    <label>Nome e cognome</label><input id="n" autocomplete="off" autofocus>
+    <button class="btn block" id="paste" type="button" style="margin-top:6px">📋 Incolla dal messaggio</button>
+    <div class="sub" style="font-size:13px;margin-top:4px">Copia il messaggio su WhatsApp (tieni premuto → Copia), poi premi qui: nome, telefono ed email si compilano da soli.</div>
+    <div id="pastebox"></div>
+    <div id="single">
+    <label>Nome e cognome</label><input id="n" autocomplete="off">
     <label>Telefono</label><input id="p" type="tel" inputmode="tel">
+    <label>Email <span class="sub" style="font-weight:400">(facoltativa)</span></label><input id="em" type="email" autocomplete="off">
+    </div>
     <label>Fonte</label>${chanChips(eventId?"EVENTI":"")}
     <label>Chi l'ha generato</label><input id="gb" placeholder="Es. Marco, Giulia, nome del tutor…" autocomplete="off">
     <label>📞 Chiamata fissata <span class="sub" style="font-weight:400">(facoltativa)</span></label><div class="row"><input id="ca" type="datetime-local"><button type="button" class="clr" id="caclr" title="Togli" aria-label="Togli la chiamata fissata">✕</button></div>
@@ -514,12 +567,41 @@ function openAdd(eventId=null, eventName="", eventCode=""){
     <label>Oppure scrivi una nota</label><textarea id="nt" placeholder="Chi è, cosa gli serve, come l'hai conosciuto…"></textarea>
     <button class="btn block mt" id="ok">Salva lead</button></div>`;
   document.body.appendChild(bg);
+  let multi=null;   // più persone trovate nello stesso messaggio
   const close=()=>{ if(recorder&&recorder.state==="recording"){ recorder.stop(); recStream.getTracks().forEach(t=>t.stop()); } bg.remove(); };
   bg.querySelector("#x").onclick=close; bg.onclick=e=>{ if(e.target===bg) close(); };
   bg.querySelector("#caclr").onclick=()=>{ bg.querySelector("#ca").value=""; };
   let chan = eventId ? "EVENTI" : "";
   bg.querySelectorAll("[data-ch]").forEach(b=>b.onclick=()=>{ chan = chan===b.dataset.ch ? "" : b.dataset.ch; bg.querySelectorAll("[data-ch]").forEach(x=>x.classList.toggle("on",x.dataset.ch===chan)); });
   if(bg.querySelector("#useqr")) bg.querySelector("#useqr").onclick=()=>{ close(); showQr(eventCode,eventName); };
+  const setChan = c => { chan=c; bg.querySelectorAll("[data-ch]").forEach(x=>x.classList.toggle("on",x.dataset.ch===chan)); };
+  const applyText = text => {
+    const r=parseLeadText(text), box=bg.querySelector("#pastebox");
+    if(!text.trim()){ toast("Gli appunti sono vuoti: copia prima il messaggio"); return; }
+    const nt=bg.querySelector("#nt"); nt.value = r.note + (nt.value.trim()?"\n\n"+nt.value:"");
+    if(r.channel && !chan) setChan(r.channel);
+    if(r.sender && !bg.querySelector("#gb").value.trim()) bg.querySelector("#gb").value=r.sender;
+    if(!r.people.length){ box.innerHTML=`<p class="card sub">Non ho trovato né un nome né un numero. Ho messo il messaggio nelle note: completa tu i campi.</p>`; return; }
+    if(r.people.length===1){ const x=r.people[0]; multi=null; bg.querySelector("#single").style.display="";
+      if(x.name) bg.querySelector("#n").value=x.name; if(x.phone) bg.querySelector("#p").value=x.phone; if(x.email) bg.querySelector("#em").value=x.email;
+      box.innerHTML=`<p class="card" style="margin-bottom:0">✔ Trovato: <b>${esc(x.name||"nome da completare")}</b>${x.phone?" · "+esc(x.phone):" · numero da completare"}${r.channel?" · fonte "+r.channel:""}<br><span class="sub">Controlla i campi qui sotto e premi Salva.</span></p>`;
+      bg.querySelector("#ok").textContent="Salva lead"; return; }
+    multi=r.people; bg.querySelector("#single").style.display="none";
+    box.innerHTML=`<div class="card"><b>Ho trovato ${r.people.length} persone</b><div class="sub">Togli la spunta a chi non vuoi salvare. Fonte, "chi l'ha generato" e note valgono per tutti.</div>
+      ${r.people.map((x,i)=>`<div class="row" style="margin-top:8px;align-items:flex-start"><input type="checkbox" data-m="${i}" checked style="width:22px;height:22px;flex:none;margin-top:12px;padding:0"><div class="grow"><input data-mn="${i}" value="${esc(x.name)}" placeholder="Nome e cognome"><input data-mp="${i}" value="${esc(x.phone)}" placeholder="Telefono" type="tel" style="margin-top:4px"></div></div>`).join("")}</div>`;
+    bg.querySelector("#ok").textContent=`Salva ${r.people.length} lead`;
+    bg.querySelectorAll("[data-m]").forEach(c=>c.onchange=()=>{ const n=bg.querySelectorAll("[data-m]:checked").length; bg.querySelector("#ok").textContent=`Salva ${n} lead`; });
+  };
+  bg.querySelector("#paste").onclick=async()=>{
+    let text=""; try{ text=await navigator.clipboard.readText(); }catch{}
+    if(text && text.trim()) return applyText(text);
+    // il browser non ha dato accesso agli appunti: incolla a mano
+    const box=bg.querySelector("#pastebox");
+    box.innerHTML=`<label>Incolla qui il messaggio</label><textarea id="pt" placeholder="Tieni premuto qui → Incolla" style="min-height:110px"></textarea><button class="btn sec block mt" id="ptok" type="button">Riconosci nome e numero</button>`;
+    const ta=box.querySelector("#pt"); ta.focus();
+    ta.addEventListener("paste",()=>setTimeout(()=>applyText(ta.value),50));
+    box.querySelector("#ptok").onclick=()=>applyText(ta.value);
+  };
   const th=bg.querySelector("#th");
   bg.querySelector("#img").onchange=async e=>{ for(const f of e.target.files){ try{ const b=await resizeImage(f); pend.files.push({kind:"screenshot",blob:b}); const im=document.createElement("img"); im.src=URL.createObjectURL(b); th.appendChild(im);}catch{ toast("Immagine non valida"); } } e.target.value=""; };
   const recBtn=bg.querySelector("#rec");
@@ -530,6 +612,7 @@ function openAdd(eventId=null, eventName="", eventCode=""){
     }catch{ toast("Microfono non disponibile: controlla i permessi"); }
   };
   bg.querySelector("#ok").onclick=async()=>{
+    if(multi) return saveMany();
     const name=bg.querySelector("#n").value.trim(), phone=bg.querySelector("#p").value.trim();
     if(!name&&!phone&&!pend.files.length){ toast("Inserisci almeno nome, telefono o uno screenshot"); return; }
     if(recorder&&recorder.state==="recording"){ const b=await stopRec(); pend.files.push({kind:"audio",blob:b}); }
@@ -541,7 +624,7 @@ function openAdd(eventId=null, eventName="", eventCode=""){
       if(dup && !confirm(`Questo numero è già salvato come "${dup.name||"senza nome"}" (aggiunto il ${fmtD(dup.created_at)}).\n\nOK = salva comunque un nuovo lead\nAnnulla = apri quello esistente`)){ bg.remove(); location.hash="#/lead/"+dup.id; return; }
     }catch{} }
     const p={ id:uid(), me:ME, created:new Date().toISOString(), files:pend.files,
-      lead:{name,phone,notes:bg.querySelector("#nt").value.trim(),status:"nuovo",event_id:eventId,channel:chan,generated_by:bg.querySelector("#gb").value.trim(),
+      lead:{name,phone,email:bg.querySelector("#em").value.trim(),notes:bg.querySelector("#nt").value.trim(),status:"nuovo",event_id:eventId,channel:chan,generated_by:bg.querySelector("#gb").value.trim(),
         call_at:bg.querySelector("#ca").value?new Date(bg.querySelector("#ca").value).toISOString():null,
         ...(bg.querySelector("#cs").checked?{consent:true,consent_at:new Date().toISOString(),consent_text:CONSENT_TEXT}:{})} };
     try{
@@ -552,6 +635,24 @@ function openAdd(eventId=null, eventName="", eventCode=""){
       btn.disabled=false; btn.textContent="Salva lead"; toast("Errore: "+e.message);
     }
   };
+  async function saveMany(){
+    const picks=[...bg.querySelectorAll("[data-m]:checked")].map(c=>{ const i=c.dataset.m; return { name:bg.querySelector(`[data-mn="${i}"]`).value.trim(), phone:bg.querySelector(`[data-mp="${i}"]`).value.trim(), email:multi[i].email||"" }; }).filter(x=>x.name||x.phone);
+    if(!picks.length){ toast("Nessuna persona selezionata"); return; }
+    const btn=bg.querySelector("#ok"); btn.disabled=true; btn.textContent="Salvo…";
+    let pool=[]; try{ pool=[...(await db.list()), ...(eventId?((await db.getEvent(eventId))?.leads||[]):[])]; }catch{}
+    const common={ notes:bg.querySelector("#nt").value.trim(), status:"nuovo", event_id:eventId, channel:chan, generated_by:bg.querySelector("#gb").value.trim(),
+      ...(bg.querySelector("#cs").checked?{consent:true,consent_at:new Date().toISOString(),consent_text:CONSENT_TEXT}:{}) };
+    let ok=0, queued=0; const dups=[];
+    for(const x of picks){
+      if(x.phone && pool.some(l=>l.phone&&normPhone(l.phone)===normPhone(x.phone))){ dups.push(x.name||x.phone); continue; }
+      const p={ id:uid(), me:ME, created:new Date().toISOString(), files:[], lead:{...common,name:x.name,phone:x.phone,email:x.email} };
+      try{ await createLead(p); ok++; }
+      catch(e){ if(!DEMO&&isNetErr(e)){ await outbox.put(p).catch(()=>{}); queued++; } else { toast("Errore su "+(x.name||x.phone)+": "+e.message); } }
+    }
+    bg.remove();
+    toast([ok&&`${ok} salvati`, queued&&`${queued} in attesa di rete`, dups.length&&`${dups.length} già presenti, saltati (${dups.join(", ")})`].filter(Boolean).join(" · ")||"Nessun lead salvato");
+    location.hash = eventId ? "#/evento/"+eventId : "#/"; if(!eventId) viewHome();
+  }
 }
 
 /* ---------- profilo lead ---------- */
