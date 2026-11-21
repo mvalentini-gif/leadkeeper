@@ -74,7 +74,8 @@ audio{width:100%;margin-top:8px}
 .clr{border:0;background:var(--card);color:var(--mute);border-radius:8px;width:30px;height:30px;font-size:15px;font-weight:700;cursor:pointer;flex:none;padding:0}
 .todo .d{width:auto;padding:5px 8px;font-size:13px;border-radius:8px}
 .todo.late .t2{color:var(--bad);font-weight:700}
-.ev{font-size:14px;padding:7px 0;border-top:1px solid var(--line)}.ev:first-child{border-top:0}
+textarea[data-k="need"]{min-height:130px}
+.ev{white-space:pre-wrap;font-size:14px;padding:7px 0;border-top:1px solid var(--line)}.ev:first-child{border-top:0}
 .ev time{color:var(--mute);font-size:12px;display:block}
 .kv{display:flex;justify-content:space-between;gap:12px;padding:11px 0;border-bottom:1px solid var(--line)}.kv span:first-child{color:var(--mute)}.kv span:last-child{font-weight:700;text-align:right}
 .sugg{white-space:pre-wrap;background:var(--card);border-radius:12px;padding:12px;margin-top:10px}
@@ -678,7 +679,8 @@ function renderLead(){
     ${l.appointment_at?`<div class="chips" style="margin-top:-4px"><button class="chip ${l.confirmed?"on":""}" id="conf">${l.confirmed?"✅ Ha confermato":"Ha confermato?"}</button><a class="chip" target="_blank" rel="noopener" href="${googleCalUrl(l)}" style="text-decoration:none">＋ Google Calendar</a><button class="chip" id="ics">＋ Calendario iPhone/Mac</button></div>`:""}
     <div class="appt" id="callbox" style="cursor:pointer"><span style="font-size:26px">📞</span><div class="grow"><div class="sub">Chiamata fissata</div><div style="font-weight:700${l.call_at&&new Date(l.call_at)<new Date()?";color:var(--bad)":""}">${l.call_at?esc(fmtDT(l.call_at))+(new Date(l.call_at)<new Date()?" · da fare!":""):"Nessuna: tocca per fissarla"}</div></div><span>›</span></div>
     <div class="sub" style="font-weight:700;margin-top:12px">Esito della chiamata</div>
-    <div class="chips" style="flex-wrap:wrap"><button class="chip" data-call="no">📵 Non ha risposto</button><button class="chip" data-call="later">🔁 Da richiamare</button><button class="chip" data-call="fix">📅 Fissato</button><button class="chip" data-call="lost">🚫 Non interessato</button></div>
+    <div class="chips" style="flex-wrap:wrap"><button class="chip" data-call="ok">💬 Ha risposto</button><button class="chip" data-call="no">📵 Non ha risposto</button><button class="chip" data-call="later">🔁 Da richiamare</button><button class="chip" data-call="fix">📅 Fissato</button><button class="chip" data-call="lost">🚫 Non interessato</button></div>
+    ${callLog(l)}
     <div class="seg">${[["promemoria","Promemoria"],["appunti","Appunti"],["obiezioni","Obiezioni"],["info","Info"]].map(([k,t])=>`<button data-t="${k}" class="${tab===k?"on":""}">${t}</button>`).join("")}</div>
     <div id="tab"></div>${bar}`;
   document.querySelectorAll(".stage").forEach(b=>b.onclick=async()=>{ await upd({status:b.dataset.s},"Fase: "+STAGES[b.dataset.s][0]); renderLead(); });
@@ -686,14 +688,39 @@ function renderLead(){
   $("#callbox").onclick=openCallAtPicker;
   if($("#conf")) $("#conf").onclick=async()=>{ await upd({confirmed:!l.confirmed}, l.confirmed?"Conferma della presenza tolta":"Ha confermato la presenza"); renderLead(); };
   document.querySelectorAll("[data-call]").forEach(b=>b.onclick=async()=>{ const k=b.dataset.call;
-    if(k==="no") openCallbackPicker("Non ha risposto: quando richiami?","Chiamata: non ha risposto");
-    if(k==="later") openCallbackPicker();
-    if(k==="fix"){ if(cur.call_at) await upd({call_at:null}); openPresPicker(); }
-    if(k==="lost"){ if(confirm("Segnare come non interessato?")){ await upd({status:"perso",call_at:null},"Chiamata: non interessato"); renderLead(); } }
+    if(k==="ok") openOutcome("💬 Ha risposto","Com'è andata? Cosa ti ha detto, cosa vi siete detti…","Salva",async note=>{
+      await endCall(); await logCall("💬 Ha risposto",note); if(cur.status==="nuovo") await upd({status:"risposto"},"Fase: Ha risposto"); renderLead(); });
+    if(k==="no") openCallbackPicker("📵 Non ha risposto: quando richiami?","📵 Non ha risposto");
+    if(k==="later") openCallbackPicker("🔁 Da richiamare: quando?","🔁 Da richiamare");
+    if(k==="fix") openOutcome("📅 Fissato","Cosa vi siete detti? Viene da solo, porta qualcuno…","Avanti: scegli la presentazione",async note=>{
+      await endCall(); await logCall("📅 Fissato",note); openPresPicker(); });
+    if(k==="lost") openOutcome("🚫 Non interessato","Perché? Cosa ti ha detto…","Segna come non interessato",async note=>{
+      await endCall(); await logCall("🚫 Non interessato",note); await upd({status:"perso",call_at:null},"Fase: Non interessato"); renderLead(); });
   });
   document.querySelectorAll(".seg button").forEach(b=>b.onclick=()=>{ state.tab=b.dataset.t; renderLead(); });
   if($("#ics")) $("#ics").onclick=()=>downloadIcs(l);
   ({promemoria:tabReminders,appunti:tabNotes,obiezioni:tabObjections,info:tabInfo})[tab]();
+}
+/* ---------- esito della chiamata: nota scritta nello storico ---------- */
+async function logCall(label,note){
+  const text = label + (note&&note.trim() ? "\n"+note.trim() : "");
+  try{ await db.addEvent(cur.id,"chiamata",text); cur.events.unshift({kind:"chiamata",text,created_at:new Date().toISOString()}); }
+  catch(e){ toast("Errore: "+e.message); } }
+// chiamata fatta: libera la chiamata fissata e chiude il "Richiamare" collegato
+async function endCall(){
+  if(cur.call_at) await upd({call_at:null});
+  const r=cur.reminders.find(x=>!x.done&&isCallRem(x)&&x.due_date&&x.due_date<=todayStr()); if(r){ r.done=true; await db.setReminder(cur.id,r.id,{done:true}).catch(()=>{}); } }
+function callLog(l){
+  const calls=(l.events||[]).filter(e=>e.kind==="chiamata").slice(0,3); if(!calls.length) return "";
+  return `<div class="card" style="margin-top:8px;padding:8px 12px"><div class="sub" style="font-weight:700">Ultime chiamate</div>${calls.map(e=>`<div class="ev">${esc(e.text)}<time>${fmtDT(e.created_at)}</time></div>`).join("")}</div>`; }
+function openOutcome(title,placeholder,btnLabel,onSave){
+  const bg=document.createElement("div"); bg.className="sheet-bg";
+  bg.innerHTML=`<div class="sheet"><div class="row"><h1 class="grow">${esc(title)}</h1><button class="chip" id="x">Chiudi</button></div>
+    <label>📝 Appunti sulla chiamata <span class="sub" style="font-weight:400">(facoltativi)</span></label>
+    <textarea id="cn" placeholder="${esc(placeholder)}" style="min-height:140px"></textarea>
+    <button class="btn block mt" id="ok">${esc(btnLabel)}</button></div>`;
+  document.body.appendChild(bg); bg.querySelector("#x").onclick=()=>bg.remove(); bg.querySelector("#cn").focus();
+  bg.querySelector("#ok").onclick=async()=>{ const note=bg.querySelector("#cn").value; bg.remove(); await onSave(note); };
 }
 // chiamata fissata: giorno e ora in cui chiamare la persona
 function openCallAtPicker(){
@@ -726,18 +753,20 @@ async function setCallback(due,time=null){
     if(r){ r.due_date=due; r.due_time=time; await db.setReminder(cur.id,r.id,{due_date:due,due_time:time}); }
     else{ const [n]=await db.addReminders(cur.id,[{text:"Richiamare",due_date:due,due_time:time}]); cur.reminders.push(n); }
   }catch(e){ toast("Errore: "+e.message); } }
-function openCallbackPicker(title="Quando richiami?", eventText=""){
+function openCallbackPicker(title="Quando richiami?", label="🔁 Da richiamare"){
   const bg=document.createElement("div"); bg.className="sheet-bg";
   bg.innerHTML=`<div class="sheet"><div class="row"><h1 class="grow">${esc(title)}</h1><button class="chip" id="x">Chiudi</button></div>
-    <label style="margin-top:6px">A che ora?</label><input id="ch" type="time" value="18:00">
+    <label>📝 Appunti sulla chiamata <span class="sub" style="font-weight:400">(facoltativi)</span></label>
+    <textarea id="cn" placeholder="Cosa ti ha detto, perché va richiamato…" style="min-height:90px"></textarea>
+    <label>A che ora richiami?</label><input id="ch" type="time" value="18:00">
     <label>Che giorno?</label>
     <div class="chips" style="flex-wrap:wrap">${new Date().getHours()<20?`<button class="chip" data-d="${todayStr()}">Oggi</button>`:""}<button class="chip" data-d="${addDays(1)}">Domani</button><button class="chip" data-d="${addDays(3)}">Tra 3 giorni</button><button class="chip" data-d="${addDays(7)}">Tra una settimana</button></div>
     <label>Oppure scegli il giorno</label><div class="row"><input id="cd" type="date" min="${todayStr()}"><button class="btn" id="ok">OK</button></div></div>`;
   document.body.appendChild(bg); bg.querySelector("#x").onclick=()=>bg.remove();
   const go=async due=>{ if(!due) return; const h=bg.querySelector("#ch")?.value||"18:00"; const iso=new Date(due+"T"+h).toISOString();
-    if(new Date(iso)<new Date()){ toast("Quell'orario è già passato"); return; } bg.remove();
-    if(eventText) await db.addEvent(cur.id,"stato",eventText).then(()=>cur.events.unshift({text:eventText,created_at:new Date().toISOString()})).catch(()=>{});
-    await upd({...(cur.status==="nuovo"&&!eventText?{status:"risposto"}:{}),call_at:iso}, "Richiamo fissato: "+fmtDT(iso)); await setCallback(due,h); toast("Richiamo: "+fmtDT(iso)); renderLead(); };
+    if(new Date(iso)<new Date()){ toast("Quell'orario è già passato"); return; } const note=bg.querySelector("#cn").value; bg.remove();
+    await endCall(); await logCall(label+" · richiamo "+fmtDT(iso), note);
+    await upd({...(cur.status==="nuovo"&&/richiam/i.test(label)?{status:"risposto"}:{}),call_at:iso}); await setCallback(due,h); toast("Richiamo: "+fmtDT(iso)); renderLead(); };
   bg.querySelectorAll("[data-d]").forEach(b=>b.onclick=()=>go(b.dataset.d)); bg.querySelector("#ok").onclick=()=>go(bg.querySelector("#cd").value);
 }
 function openPresPicker(){
@@ -776,7 +805,10 @@ function tabReminders(){
   $("#addr").onclick=async()=>{ const v=$("#newr").value.trim(); if(!v) return; const [r]=await db.addReminders(cur.id,[{text:v}]); cur.reminders.push(r); renderLead(); };
 }
 
+// i lead salvati prima avevano tre campi separati: li unisco una volta nel box unico
+function mergeNeedFields(l){ const parts=[l.need, l.utility&&"Utilità: "+l.utility, l.why&&"Il suo perché: "+l.why].filter(x=>x&&String(x).trim()); return parts.join("\n"); }
 function tabNotes(){
+  if(cur.utility||cur.why){ const merged=mergeNeedFields(cur); upd({need:merged,utility:"",why:""}); }
   const shots=cur.files.filter(f=>f.kind==="screenshot"), auds=cur.files.filter(f=>f.kind==="audio");
   $("#tab").innerHTML=`<p class="sub">🔒 Solo per te: la persona non li vede.</p>
     ${shots.length?`<div class="thumbs">${shots.map(f=>`<a href="${f.url}" target="_blank" rel="noopener"><img src="${f.url}" alt="screenshot"></a>`).join("")}</div>`:""}
@@ -784,8 +816,7 @@ function tabNotes(){
     <div class="row mt"><input id="addfile" type="file" accept="image/*,audio/*" class="grow"><button class="btn sec" id="recbtn">🎙️</button></div>
     <label>Chi è</label><div class="chips">${Object.entries(CATS).map(([k,t])=>`<button class="chip ${cur.category===k?"on":""}" data-c="${k}">${t}</button>`).join("")}</div>
     ${field("Età","age","input","–")}${field("Chi è, come ci ha conosciuti","who","textarea","Cosa fa, cosa studia, come ci ha conosciuti…")}
-    ${field("Bisogno","need","textarea","Di cosa ha bisogno nello studio?")}${field("Utilità","utility","textarea","A cosa gli servirebbe il corso?")}
-    ${field("Il suo perché","why","textarea","Perché vuole venire all'open day / fare il corso?")}
+    ${field("Bisogno, utilità e il suo perché","need","textarea","Di cosa ha bisogno nello studio? A cosa gli servirebbe il corso? Perché vuole venire all'open day / fare il corso?")}
     ${field("Preoccupazioni e obiezioni","objections","textarea","Dubbi, paure, cosa potrebbe ostacolarlo")}
     <label>Interesse</label><div class="chips">${Object.entries(INTEREST).map(([k,t])=>`<button class="chip ${cur.interest===k?"on":""}" data-i="${k}">${t}</button>`).join("")}</div>
     ${field("Altri appunti","notes","textarea","Tutto il resto…")}
@@ -800,7 +831,8 @@ function tabNotes(){
     else{ await startRec(); rb.className="btn rec"; rb.textContent="⏹"; } }catch{ toast("Microfono non disponibile"); } };
   $("#fill").onclick=async()=>{ const txt=[cur.who,cur.notes].filter(Boolean).join("\n"); if(!txt){ toast("Scrivi prima qualche nota"); return; }
     $("#fill").disabled=true; $("#fill").textContent="Ci penso…";
-    try{ const p=await db.fillProfile(cur,txt); const patch={}; for(const k of ["age","who","need","utility","why","objections"]) if(p[k]&&!cur[k]) patch[k]=String(p[k]);
+    try{ const p=await db.fillProfile(cur,txt); const patch={}; for(const k of ["age","who","objections"]) if(p[k]&&!cur[k]) patch[k]=String(p[k]);
+      if(!cur.need){ const m=mergeNeedFields({need:p.need,utility:p.utility,why:p.why}); if(m) patch.need=m; }
       if(p.category in CATS && !cur.category) patch.category=p.category; if(p.interest in INTEREST && !cur.interest) patch.interest=p.interest;
       await upd(patch); toast("Appunti compilati"); }catch(e){ toast(e.message||"Errore"); } renderLead(); };
 }
